@@ -37,6 +37,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pilotId = (int)$currentUser['id'];
     }
 
+    // Capture the user who created/entered the flight plan
+    $createdBy = (int)$currentUser['id'];
+
     $flightDate = $_POST['flight_date'] ?? '';
     $startTime = $_POST['start_time'] ?? '';
     $endTime = $_POST['end_time'] ?? '';
@@ -65,18 +68,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     flight_number, pilot_id, work_package, facility_name, flight_date,
                     start_time, end_time, max_altitude, latitude, longitude, polygon_geojson,
                     operational_acres, aircraft_model, airspace_class, laanc_required,
-                    laanc_status, additional_emails, mission_purpose
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    laanc_status, additional_emails, mission_purpose, created_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $flightNumber, $pilotId, $workPackage, $facilityName, $flightDate,
                 $startTime, $endTime, $maxAltitude, $latitude, $longitude, $polygonGeoJson,
                 $operationalAcres, $aircraftModel, $airspaceClass, $laancRequired,
-                $laancStatus, $additionalEmails, $missionPurpose
+                $laancStatus, $additionalEmails, $missionPurpose, $createdBy
             ]);
 
             $newFlightId = (int)$pdo->lastInsertId();
-
             header("Location: flight_details.php?id=$newFlightId&created=1");
             exit;
         } catch (PDOException $e) {
@@ -202,7 +204,7 @@ $pilots = $isAdmin ? $pdo->query("SELECT * FROM users WHERE is_active = 1 ORDER 
             <div class="map-cockpit" style="background: #0f172a; border-radius: 8px; overflow: hidden;">
                 <div class="map-toolbar">
                     <div class="map-toolbar-left">
-                        <button type="button" id="btn-draw-polygon" class="btn btn-aloft btn-sm">⬟ Draw Flight Polygon</button>
+                        <button type="button" id="btn-draw-polygon" class="btn btn-aloft btn-sm">  Draw Flight Polygon</button>
                         <button type="button" id="btn-clear-polygon" class="btn btn-outline btn-sm" style="color: #cbd5e1; border-color: #475569;">Reset</button>
                         <span id="polygon-draw-status" class="map-mode-indicator">Define mission airspace boundary on the map.</span>
                     </div>
@@ -210,14 +212,12 @@ $pilots = $isAdmin ? $pdo->query("SELECT * FROM users WHERE is_active = 1 ORDER 
                         <span class="badge badge-info">Aloft UI Engine</span>
                     </div>
                 </div>
-
                 <div id="flight-polygon-map" 
                      class="planner-map-container"
                      data-interactive="true" 
                      data-lat="37.115191" 
                      data-lng="-88.811224">
                 </div>
-
                 <div class="map-telemetry-bar">
                     <div class="map-telemetry-item">Footprint: <strong id="display-acres">0.00</strong> Acres</div>
                     <div class="map-telemetry-item">Centroid: <strong id="display-center">37.115191, -88.811224</strong></div>
