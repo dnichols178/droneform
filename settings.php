@@ -9,29 +9,31 @@ requireAdmin();
 $pageTitle = 'System & Notification Settings';
 $currentPage = 'settings';
 require_once __DIR__ . '/includes/header.php';
-$pdo = getDB();
 
+$pdo = getDB();
 $msg = '';
 $err = '';
 
-// 1. Handle SMTP Settings Update
+// 1. Handle SMTP & Timezone Settings Update
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_smtp') {
     $settingsToSave = [
-        'smtp_host' => trim($_POST['smtp_host'] ?? ''),
-        'smtp_port' => trim($_POST['smtp_port'] ?? '25'),
-        'smtp_auth' => isset($_POST['smtp_auth']) ? '1' : '0',
-        'smtp_user' => trim($_POST['smtp_user'] ?? ''),
-        'smtp_pass' => trim($_POST['smtp_pass'] ?? ''),
-        'smtp_secure' => $_POST['smtp_secure'] ?? 'none',
-        'mail_from' => trim($_POST['mail_from'] ?? ''),
-        'mail_from_name' => trim($_POST['mail_from_name'] ?? '')
+        'smtp_host'    => trim($_POST['smtp_host'] ?? ''),
+        'smtp_port'    => trim($_POST['smtp_port'] ?? '25'),
+        'smtp_auth'    => isset($_POST['smtp_auth']) ? '1' : '0',
+        'smtp_user'    => trim($_POST['smtp_user'] ?? ''),
+        'smtp_pass'    => trim($_POST['smtp_pass'] ?? ''),
+        'smtp_secure'  => $_POST['smtp_secure'] ?? 'none',
+        'mail_from'    => trim($_POST['mail_from'] ?? ''),
+        'mail_from_name'=> trim($_POST['mail_from_name'] ?? ''),
+        'app_timezone' => trim($_POST['app_timezone'] ?? 'America/Chicago')
     ];
 
     $stmt = $pdo->prepare("INSERT OR REPLACE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
     foreach ($settingsToSave as $k => $v) {
         $stmt->execute([$k, $v]);
     }
-    $msg = "SMTP and email server settings saved successfully.";
+    date_default_timezone_set($settingsToSave['app_timezone']);
+    $msg = "System, timezone, and SMTP email settings saved successfully.";
 }
 
 // 2. Handle Live Test Email
@@ -42,10 +44,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     } else {
         $testSubject = "UAS Part 107 Ops Platform: SMTP Test Connection";
         $testBody = "This is a test notification verifying the SMTP relay settings on the Part 107 Flight Operations Platform.\r\n" .
-                    "Timestamp: " . date('Y-m-d H:i:s') . "\r\n" .
+                    "Local Timestamp: " . date('Y-m-d H:i:s T') . "\r\n" .
                     "Host: " . getSystemSetting('smtp_host') . ":" . getSystemSetting('smtp_port') . "\r\n";
         $testError = null;
-        if (sendSmtpMail([$testTo], $testSubject, $testBody, $testError)) {
+        if (sendSmtpMail([$testTo], $testSubject, nl2br($testBody), $testBody, $testError)) {
             $msg = "Test email successfully sent to {$testTo}!";
         } else {
             $err = "SMTP Test Failed: " . htmlspecialchars($testError);
@@ -53,7 +55,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// 3. Handle Add Mandatory Recipient
+// 3. Handle Manual Reminder Dispatch Trigger
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'run_reminders') {
+    $dispatched = checkAndSendPostFlightReminders();
+    $msg = "Post-flight log reminder scan complete. Dispatched {$dispatched} overdue reminder notification(s).";
+}
+
+// 4. Handle Add Mandatory Recipient
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_recipient') {
     $name = trim($_POST['full_name'] ?? '');
     $email = strtolower(trim($_POST['email'] ?? ''));
@@ -72,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// 4. Handle Delete Mandatory Recipient
+// 5. Handle Delete Mandatory Recipient
 if (isset($_GET['delete_recipient'])) {
     $delId = (int)$_GET['delete_recipient'];
     $stmt = $pdo->prepare("DELETE FROM distribution_recipients WHERE id = ?");
@@ -90,6 +98,7 @@ $smtpPass = getSystemSetting('smtp_pass', '');
 $smtpSecure = getSystemSetting('smtp_secure', 'none');
 $mailFrom = getSystemSetting('mail_from', 'flight-ops@uas-part107.com');
 $mailFromName = getSystemSetting('mail_from_name', 'FAA Part 107 Flight Operations');
+$currentTimezone = getSystemSetting('app_timezone', 'America/Chicago');
 
 $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC")->fetchAll();
 ?>
@@ -99,8 +108,7 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
 <?php if ($err): ?><div class="alert alert-danger"><?= htmlspecialchars($err) ?></div><?php endif; ?>
 
 <div class="user-admin-split" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; width: 100%;">
-
-    <!-- LEFT COLUMN: MANDATORY PROCEDURAL DISTRIBUTION LIST -->
+    <!-- LEFT COLUMN: MANDATORY DISTRIBUTION LIST & MANUAL REMINDERS -->
     <div style="min-width: 0;">
         <div class="card">
             <div class="card-header">
@@ -109,9 +117,8 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
             </div>
             <div class="card-body">
                 <p class="form-hint" style="margin-bottom: 1.25rem;">
-                    These contacts are required by flight safety procedures. They automatically receive official flight plan notifications once LAANC authorization is recorded. End users and pilots cannot alter or remove these recipients.
+                    These contacts are required by flight safety procedures. They automatically receive official flight plan notifications once LAANC authorization is recorded.
                 </p>
-
                 <div class="table-responsive" style="margin-bottom: 1.5rem;">
                     <table class="table">
                         <thead>
@@ -132,8 +139,8 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                                     <td><small style="color:var(--text-muted);"><?= htmlspecialchars($r['organization'] ?: 'Standard') ?></small></td>
                                     <td>
                                         <a href="settings.php?delete_recipient=<?= $r['id'] ?>" 
-                                           class="btn btn-outline btn-sm" 
-                                           style="color: var(--danger); border-color: var(--border);"
+                                            class="btn btn-outline btn-sm" 
+                                            style="color: var(--danger); border-color: var(--border);"
                                            onclick="return confirm('Remove this mandatory contact from future flight dispatches?');">
                                             Remove
                                         </a>
@@ -167,23 +174,58 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                         </form>
                     </div>
                 </div>
+
+                <div class="card" style="margin-top: 1.5rem; border: 1px solid var(--border-light);">
+                    <div class="card-header"><h3 class="card-title" style="font-size: 1rem;">Post-Flight Log Reminder Trigger</h3></div>
+                    <div class="card-body">
+                        <p class="form-hint" style="margin-bottom: 0.75rem;">
+                            Reminders are automatically dispatched periodically and via CLI cron. Click below to immediately trigger an audit scan for overdue logs (> 1 day post-flight).
+                        </p>
+                        <form method="POST" action="settings.php">
+                            <input type="hidden" name="action" value="run_reminders">
+                            <button type="submit" class="btn btn-outline btn-sm">Trigger Reminder Scan Now</button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- RIGHT COLUMN: SERVER SMTP CONFIGURATION -->
+    <!-- RIGHT COLUMN: SERVER SMTP CONFIGURATION & TIMEZONE -->
     <div style="min-width: 0;">
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">SMTP Relay &amp; Email Server Configuration</h2>
+                <h2 class="card-title">System Timezone &amp; SMTP Configuration</h2>
             </div>
             <div class="card-body">
                 <p class="form-hint" style="margin-bottom: 1.25rem;">
-                    Configure the outbound SMTP server used for all automated flight plan notifications. For server migrations or internal networks, specify your internal relay IP and port.
+                    Configure local operating timezone and outbound SMTP settings for all automated flight plan and reminder notifications.
                 </p>
-
                 <form method="POST" action="settings.php">
                     <input type="hidden" name="action" value="save_smtp">
+
+                    <div class="form-group" style="background: #f8fafc; padding: 0.85rem; border-radius: 6px; border: 1px solid var(--border-light); margin-bottom: 1.25rem;">
+                        <label for="app_timezone"><strong>Local Operating Time Zone</strong></label>
+                        <select name="app_timezone" id="app_timezone" class="form-control" style="font-weight: 600;">
+                            <?php
+                            $commonTimezones = [
+                                'America/Chicago'     => 'Central Time (US & Canada) - CDT/CST',
+                                'America/New_York'    => 'Eastern Time (US & Canada) - EDT/EST',
+                                'America/Denver'      => 'Mountain Time (US & Canada) - MDT/MST',
+                                'America/Phoenix'     => 'Mountain Time (Arizona - No DST)',
+                                'America/Los_Angeles' => 'Pacific Time (US & Canada) - PDT/PST',
+                                'America/Anchorage'   => 'Alaska Time - AKDT/AKST',
+                                'Pacific/Honolulu'    => 'Hawaii Standard Time - HST'
+                            ];
+                            foreach ($commonTimezones as $tzKey => $tzLabel):
+                            ?>
+                                <option value="<?= $tzKey ?>" <?= ($currentTimezone === $tzKey) ? 'selected' : '' ?>>
+                                    <?= $tzLabel ?> (Current: <?= (new DateTime('now', new DateTimeZone($tzKey)))->format('g:i A') ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="form-hint">All flight records, clearance stamps, and email dispatches use this timezone.</div>
+                    </div>
 
                     <div class="grid grid-cols-2">
                         <div class="form-group">
@@ -238,7 +280,7 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                     </div>
 
                     <div style="margin-top: 1.25rem;">
-                        <button type="submit" class="btn btn-primary">Save SMTP Settings</button>
+                        <button type="submit" class="btn btn-primary">Save Settings</button>
                     </div>
                 </form>
 
