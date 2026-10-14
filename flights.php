@@ -2,18 +2,21 @@
 $pageTitle = 'Flight Operations Catalog';
 $currentPage = 'flights';
 require_once __DIR__ . '/includes/header.php';
-$pdo = getDB();
 
+$pdo = getDB();
 $search = trim($_GET['search'] ?? '');
+
 $sql = "
-    SELECT f.*, u.full_name AS pilot_name
+    SELECT f.*, u.full_name AS pilot_name, fl.id AS flight_log_id
     FROM flights f
     JOIN users u ON f.pilot_id = u.id
+    LEFT JOIN flight_logs fl ON fl.flight_id = f.id
 ";
 
 if (!empty($search)) {
     $sql .= " WHERE f.flight_number LIKE :s OR f.facility_name LIKE :s OR f.work_package LIKE :s ";
 }
+
 // Highest flight plan number first
 $sql .= " ORDER BY f.flight_number DESC";
 
@@ -61,10 +64,16 @@ $flights = $stmt->fetchAll();
                             <td><?= htmlspecialchars($f['facility_name']) ?></td>
                             <td>Class <?= htmlspecialchars($f['airspace_class']) ?></td>
                             <td><?= $f['max_altitude'] ?> ft</td>
-                            <td><span class="badge badge-info"><?= $f['laanc_status'] ?></span></td>
+                            <td><span class="badge badge-info"><?= htmlspecialchars($f['laanc_status']) ?></span></td>
                             <td><?= htmlspecialchars($f['pilot_name']) ?></td>
-                            <td><?= $f['flight_date'] ?></td>
-                            <td><span class="badge badge-neutral"><?= $f['status'] ?></span></td>
+                            <td><?= htmlspecialchars($f['flight_date']) ?></td>
+                            <td>
+                                <?php if (!empty($f['flight_log_id'])): ?>
+                                    <span class="badge badge-success">Complete</span>
+                                <?php else: ?>
+                                    <span class="badge badge-warning">In Progress</span>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <a href="flight_details.php?id=<?= $f['id'] ?>" class="btn btn-outline btn-sm">Details</a>
                             </td>
