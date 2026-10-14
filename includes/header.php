@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
+
 requireLogin();
 $user = getCurrentUser();
 ?>
@@ -16,15 +17,16 @@ $user = getCurrentUser();
     <link rel="stylesheet" href="assets/style.css?v=<?= file_exists(BASE_PATH . '/assets/style.css') ? filemtime(BASE_PATH . '/assets/style.css') : time() ?>">
 </head>
 <body>
+
 <nav class="navbar">
     <div class="nav-brand">
-        <span class="badge-icon">✈</span>
+        <span class="badge-icon">🚁</span>
         <strong>Part 107 Ops Platform</strong>
     </div>
     <ul class="nav-links">
         <li><a href="dashboard.php" class="<?= ($currentPage ?? '') === 'dashboard' ? 'active' : '' ?>">Dashboard</a></li>
         <li><a href="flights.php" class="<?= ($currentPage ?? '') === 'flights' ? 'active' : '' ?>">Flight Log</a></li>
-       <?php if ($user['role'] === 'admin'): ?>
+        <?php if ($user['role'] === 'admin'): ?>
             <li><a href="users.php" class="<?= ($currentPage ?? '') === 'users' ? 'active' : '' ?>">User Administration</a></li>
             <li><a href="settings.php" class="<?= ($currentPage ?? '') === 'settings' ? 'active' : '' ?>">Settings</a></li>
         <?php endif; ?>
@@ -35,4 +37,5 @@ $user = getCurrentUser();
         <a href="logout.php" class="btn btn-sm btn-outline">Log Out</a>
     </div>
 </nav>
+
 <main class="main-content">
