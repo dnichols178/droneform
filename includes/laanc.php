@@ -20,7 +20,6 @@ class LaancDeepLinkService {
             'start' => $flight['start_time'] ?? '09:00',
             'end' => $flight['end_time'] ?? '11:00'
         ];
-
         return $base . '?' . http_build_query($params);
     }
 
@@ -33,7 +32,7 @@ class LaancDeepLinkService {
     }
 
     /**
-     * Records the FAA LAANC authorization, preventing duplicates across all flights
+     * Records the FAA LAANC authorization in local time, preventing duplicates across all flights
      */
     public static function recordAloftAuthorization(int $flightId, string $authNumber, ?string &$errorMsg = null): bool {
         $authNumber = strtoupper(trim($authNumber));
@@ -54,13 +53,14 @@ class LaancDeepLinkService {
             return false;
         }
 
+        $localTimestamp = date('Y-m-d H:i:s');
         $stmt = $pdo->prepare("
             UPDATE flights SET
                 laanc_auth_number = ?,
                 laanc_status = 'AUTO_APPROVED',
-                laanc_authorized_at = datetime('now')
+                laanc_authorized_at = ?
             WHERE id = ?
         ");
-        return $stmt->execute([$authNumber, $flightId]);
+        return $stmt->execute([$authNumber, $localTimestamp, $flightId]);
     }
 }
