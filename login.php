@@ -2,12 +2,14 @@
 require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/db.php';
 
+// Force database generation immediately upon visiting the login page
+$pdo = getDB();
+
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    $pdo = getDB();
     $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ? AND is_active = 1");
     $stmt->execute([$username]);
     $user = $stmt->fetch();
@@ -35,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="auth-card">
         <div class="auth-header">
             <h1>Part 107 UAS Flight Hub</h1>
-            <p>Commercial Drone Operations & Airspace Management</p>
+            <p>Commercial Drone Operations &amp; Airspace Management</p>
         </div>
 
         <?php if ($error): ?>
@@ -47,12 +49,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <label for="username">Username</label>
                 <input type="text" id="username" name="username" class="form-control" required autofocus>
             </div>
+
             <div class="form-group">
                 <label for="password">Password</label>
                 <input type="password" id="password" name="password" class="form-control" required>
             </div>
+
             <button type="submit" class="btn btn-primary btn-block">Authenticate &amp; Enter</button>
         </form>
+
         <p class="form-hint" style="margin-top:1rem; text-align:center;">
             Initial Setup Admin: <code>admin</code> / <code>Admin@107</code>
         </p>
