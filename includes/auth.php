@@ -1,0 +1,33 @@
+<?php
+require_once __DIR__ . '/db.php';
+
+function getCurrentUser(): ?array {
+    if (empty($_SESSION['user_id'])) {
+        return null;
+    }
+    $pdo = getDB();
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+    $stmt->execute([$_SESSION['user_id']]);
+    return $stmt->fetch() ?: null;
+}
+
+function requireLogin(): void {
+    if (empty($_SESSION['user_id'])) {
+        header('Location: login.php');
+        exit;
+    }
+}
+
+function requireAdmin(): void {
+    requireLogin();
+    $user = getCurrentUser();
+    
+    // Validate role directly against the database (case-insensitive)
+    if (!$user || strtolower(trim($user['role'])) !== 'admin') {
+        header('Location: dashboard.php?error=unauthorized');
+        exit;
+    }
+
+    // Keep session in sync
+    $_SESSION['user_role'] = $user['role'];
+}
