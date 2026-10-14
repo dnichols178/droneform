@@ -5,18 +5,36 @@ function getDB(): PDO {
     static $pdo = null;
     if ($pdo === null) {
         if (!file_exists(DATA_PATH)) {
-            mkdir(DATA_PATH, 0755, true);
+            @mkdir(DATA_PATH, 0777, true);
         }
 
-        $isNew = !file_exists(DB_FILE);
         $pdo = new PDO('sqlite:' . DB_FILE);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
-        if ($isNew) {
+        // Prevent deadlocks: set a 5-second busy timeout and enable Write-Ahead Logging (WAL)
+        $pdo->setAttribute(PDO::ATTR_TIMEOUT, 5);
+        $pdo->exec("PRAGMA busy_timeout = 5000;");
+        $pdo->exec("PRAGMA journal_mode = WAL;");
+        $pdo->exec("PRAGMA foreign_keys = ON;");
+
+        // Inspect sqlite_master for base tables
+        $tablesExist = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users'")->fetchColumn();
+
+        if (!$tablesExist) {
             initSchema($pdo);
         } else {
             migrateSchema($pdo);
+        }
+
+        // Apply saved system timezone safely within the single existing PDO handle
+        try {
+            $tz = $pdo->query("SELECT setting_value FROM system_settings WHERE setting_key = 'app_timezone'")->fetchColumn();
+            if (!empty($tz)) {
+                date_default_timezone_set($tz);
+            }
+        } catch (Exception $e) {
+            // Retain default if setting is unreadable
         }
     }
     return $pdo;
@@ -51,11 +69,12 @@ function initSchema(PDO $pdo): void {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );");
 
-    // 3. Flights Table (Includes additional_emails column)
+    // 3. Flights Table
     $pdo->exec("CREATE TABLE IF NOT EXISTS flights (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         flight_number TEXT UNIQUE NOT NULL,
         pilot_id INTEGER NOT NULL,
+        created_by INTEGER,
         work_package TEXT NOT NULL,
         facility_name TEXT NOT NULL,
         flight_date DATE NOT NULL,
@@ -73,10 +92,12 @@ function initSchema(PDO $pdo): void {
         laanc_auth_number TEXT,
         laanc_authorized_at DATETIME,
         additional_emails TEXT,
+        reminder_sent_at DATETIME,
         status TEXT NOT NULL DEFAULT 'SCHEDULED',
         mission_purpose TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (pilot_id) REFERENCES users(id)
+        FOREIGN KEY (pilot_id) REFERENCES users(id),
+        FOREIGN KEY (created_by) REFERENCES users(id)
     );");
 
     // 4. Post Flight Logs
@@ -126,25 +147,26 @@ function initSchema(PDO $pdo): void {
 
     // Seed default admin account
     $defaultAdminPass = password_hash('Admin@107', PASSWORD_DEFAULT);
-    $pdo->prepare("INSERT INTO users (username, password_hash, full_name, email, phone, part107_cert_num, role)
+    $pdo->prepare("INSERT OR IGNORE INTO users (username, password_hash, full_name, email, phone, part107_cert_num, role)
                    VALUES ('admin', ?, 'Chief Remote Pilot', 'admin@uas-ops.local', '555-0107', 'FAA-4019283', 'admin')")
         ->execute([$defaultAdminPass]);
 
     // Seed default procedural recipients
-    $pdo->exec("INSERT INTO distribution_recipients (full_name, email, organization) VALUES
+    $pdo->exec("INSERT OR IGNORE INTO distribution_recipients (full_name, email, organization) VALUES
                 ('Security Operations Center', 'soc@site-security.local', 'Facility Protective Force'),
                 ('Aviation Safety Officer', 'safety@uas-ops.local', 'Airspace & Safety Management');");
 
     // Seed default SMTP & sender settings
     $defaultSettings = [
-        'smtp_host' => '127.0.0.1',
-        'smtp_port' => '25',
-        'smtp_auth' => '0',
-        'smtp_user' => '',
-        'smtp_pass' => '',
-        'smtp_secure' => 'none', // none, tls, ssl
-        'mail_from' => 'flight-ops@uas-part107.com',
-        'mail_from_name' => 'FAA Part 107 Flight Operations'
+        'smtp_host'    => '127.0.0.1',
+        'smtp_port'    => '25',
+        'smtp_auth'    => '0',
+        'smtp_user'    => '',
+        'smtp_pass'    => '',
+        'smtp_secure'  => 'none',
+        'mail_from'    => 'flight-ops@uas-part107.com',
+        'mail_from_name'=> 'FAA Part 107 Flight Operations',
+        'app_timezone' => 'America/Chicago'
     ];
     $stmt = $pdo->prepare("INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
     foreach ($defaultSettings as $k => $v) {
@@ -153,7 +175,6 @@ function initSchema(PDO $pdo): void {
 }
 
 function migrateSchema(PDO $pdo): void {
-    // Ensure new tables exist
     $pdo->exec("CREATE TABLE IF NOT EXISTS distribution_recipients (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         full_name TEXT NOT NULL,
@@ -167,28 +188,35 @@ function migrateSchema(PDO $pdo): void {
         setting_value TEXT
     );");
 
-    // Seed default settings if empty
-    $count = $pdo->query("SELECT COUNT(*) FROM system_settings")->fetchColumn();
-    if ($count == 0) {
-        $defaultSettings = [
-            'smtp_host' => '127.0.0.1',
-            'smtp_port' => '25',
-            'smtp_auth' => '0',
-            'smtp_user' => '',
-            'smtp_pass' => '',
-            'smtp_secure' => 'none',
-            'mail_from' => 'flight-ops@uas-part107.com',
-            'mail_from_name' => 'FAA Part 107 Flight Operations'
-        ];
-        $stmt = $pdo->prepare("INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
-        foreach ($defaultSettings as $k => $v) {
-            $stmt->execute([$k, $v]);
-        }
+    $defaultSettings = [
+        'smtp_host'    => '127.0.0.1',
+        'smtp_port'    => '25',
+        'smtp_auth'    => '0',
+        'smtp_user'    => '',
+        'smtp_pass'    => '',
+        'smtp_secure'  => 'none',
+        'mail_from'    => 'flight-ops@uas-part107.com',
+        'mail_from_name'=> 'FAA Part 107 Flight Operations',
+        'app_timezone' => 'America/Chicago'
+    ];
+    $stmt = $pdo->prepare("INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
+    foreach ($defaultSettings as $k => $v) {
+        $stmt->execute([$k, $v]);
     }
 
-    // Ensure additional_emails exists in flights table
-    $flightCols = array_column($pdo->query("PRAGMA table_info(flights)")->fetchAll(), 'name');
-    if (!in_array('additional_emails', $flightCols, true)) {
-        $pdo->exec("ALTER TABLE flights ADD COLUMN additional_emails TEXT");
+    $hasFlights = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='flights'")->fetchColumn();
+    if ($hasFlights) {
+        $flightCols = array_column($pdo->query("PRAGMA table_info(flights)")->fetchAll(), 'name');
+
+        if (!in_array('additional_emails', $flightCols, true)) {
+            $pdo->exec("ALTER TABLE flights ADD COLUMN additional_emails TEXT");
+        }
+        if (!in_array('created_by', $flightCols, true)) {
+            $pdo->exec("ALTER TABLE flights ADD COLUMN created_by INTEGER");
+            $pdo->exec("UPDATE flights SET created_by = pilot_id WHERE created_by IS NULL");
+        }
+        if (!in_array('reminder_sent_at', $flightCols, true)) {
+            $pdo->exec("ALTER TABLE flights ADD COLUMN reminder_sent_at DATETIME");
+        }
     }
 }
