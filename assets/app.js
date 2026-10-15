@@ -164,7 +164,7 @@ function initFlightPlannerMap() {
 
         isDrawing = false;
         if (drawBtn) {
-            drawBtn.textContent = '✏ Redraw Polygon';
+            drawBtn.textContent = 'Redraw Polygon';
             drawBtn.className = 'btn btn-aloft btn-sm';
         }
         if (statusText) statusText.textContent = 'Flight boundary enclosed.';
