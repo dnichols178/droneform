@@ -166,9 +166,9 @@ $flightLog = $logStmt->fetch();
 <?php if ($currentStep === '3'): ?>
     <!-- STEP 3: FULL WIDTH OUTLOOK EMAIL REVIEW (Map omitted from side since it is embedded in the email preview) -->
     <?php
-    $previewFrom = getSystemSetting('mail_from_name', 'FAA Part 107 Flight Operations') . " <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
+    $previewFrom = getSystemSetting('mail_from_name', 'FRNP Drone Flight Operations') . " <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
     $previewTo = implode(', ', $allRecipients);
-    $previewSubject = "FAA PART 107 FLIGHT AUTHORIZATION NOTIFICATION: " . $flight['flight_number'] . " [" . $flight['facility_name'] . "]";
+    $previewSubject = "FRNP Flight Notification " . $flight['flight_number'];
     $previewHtml = buildFlightNotificationHtml($flight, $allRecipients);
     ?>
     <div class="card" style="border-top: 4px solid var(--success); max-width: 960px; margin: 0 auto 2rem auto;">
@@ -204,7 +204,7 @@ $flightLog = $logStmt->fetch();
                 <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" onsubmit="return confirm('Cancel and delete this flight plan? All flight data will be permanently purged.');">
                     <input type="hidden" name="action" value="cancel_flight">
                     <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: var(--danger);">
-                        🗑 Cancel &amp; Delete Flight
+                        X Cancel &amp; Delete Flight
                     </button>
                 </form>
                 <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>">
