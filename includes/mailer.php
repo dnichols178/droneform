@@ -296,7 +296,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     $html .= '  <meta name="viewport" content="width=device-width, initial-scale=1.0" />' . "\r\n";
     $html .= '  <title>' . htmlspecialchars($flight['flight_number']) . '</title>' . "\r\n";
     $html .= '</head>' . "\r\n";
-    $html .= '<body style="margin: 0; padding: 20px; background-color: #f0f4f8; font-family: Arial, Helvetica, sans-serif;">' . "\r\n";
+    $html .= '<body style="margin: 0; background-color: #f0f4f8; font-family: Arial, Helvetica, sans-serif;">' . "\r\n";
     $html .= '  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f0f4f8;">' . "\r\n";
     $html .= '    <tr><td align="center">' . "\r\n";
     $html .= '        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 640px; background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden;">' . "\r\n";
@@ -304,7 +304,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     // Header Banner
     $html .= '          <tr><td bgcolor="#0f172a" style="background-color: #0f172a; padding: 22px 28px; border-bottom: 3px solid #0284c7;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' . "\r\n";
-    $html .= '                  <td><div style="color: #38bdf8; font-size: 11px; font-weight: 700; text-transform: uppercase;">FAA Part 107 Commercial Flight Plan</div>' . "\r\n";
+    $html .= '                  <td><div style="color: #38bdf8; font-size: 11px; font-weight: 700; text-transform: uppercase;">FRNP Drone Flight Plan</div>' . "\r\n";
     $html .= '                      <div style="color: #ffffff; font-size: 22px; font-weight: 700; margin-top: 4px;">' . htmlspecialchars($flight['flight_number']) . '</div></td>' . "\r\n";
     $html .= '                  <td align="right"><span style="background-color: rgba(255,255,255,0.15); color: #ffffff; font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 4px;">Class ' . htmlspecialchars($flight['airspace_class']) . ' Airspace</span></td>' . "\r\n";
     $html .= '              </tr></table></td></tr>' . "\r\n";
@@ -320,19 +320,19 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     }
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
-    // Mission Scope
-    $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
-    $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f8fafc" style="background-color: #f8fafc; border-left: 4px solid #0284c7; border-radius: 4px; border: 1px solid #e2e8f0;">' . "\r\n";
-    $html .= '                <tr><td style="padding: 14px 18px;">' . "\r\n";
-    $html .= '                    <div style="font-size: 11px; font-weight: 700; color: #0369a1; text-transform: uppercase; margin-bottom: 4px;">Required Mission Scope</div>' . "\r\n";
-    $html .= '                    <div style="font-size: 13px; line-height: 18px; color: #1e293b; font-weight: 600;">' . nl2br(htmlspecialchars($flight['mission_purpose'])) . '</div>' . "\r\n";
-    $html .= '                </td></tr></table></td></tr>' . "\r\n";
-
     // Embedded Flight Map
     $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0f172a" style="background-color: #0f172a; border-radius: 6px; overflow: hidden; border: 1px solid #334155;">' . "\r\n";
     $html .= '                <tr><td align="center" style="padding: 0; background-color: #090d16;">' . "\r\n";
     $html .= '                    <img src="' . $imageSrc . '" alt="Flight Area Map" width="584" style="width: 100%; max-width: 584px; height: auto; display: block; border: 0;" />' . "\r\n";
+    $html .= '                </td></tr></table></td></tr>' . "\r\n";
+
+        // Mission Scope
+    $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
+    $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f8fafc" style="background-color: #f8fafc; border-left: 4px solid #0284c7; border-radius: 4px; border: 1px solid #e2e8f0;">' . "\r\n";
+    $html .= '                <tr><td style="padding: 14px 18px;">' . "\r\n";
+    $html .= '                    <div style="font-size: 11px; font-weight: 700; color: #0369a1; text-transform: uppercase; margin-bottom: 4px;">Mission Scope</div>' . "\r\n";
+    $html .= '                    <div style="font-size: 13px; line-height: 18px; color: #1e293b; font-weight: 600;">' . nl2br(htmlspecialchars($flight['mission_purpose'])) . '</div>' . "\r\n";
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
     // Operations Data Table
@@ -361,7 +361,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     }
     $html .= '              </table></td></tr>' . "\r\n";
 
-    $html .= '          <tr><td bgcolor="#f8fafc" style="background-color: #f8fafc; padding: 14px 28px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">FAA 14 CFR Part 107 Automated Bulletin.</td></tr>' . "\r\n";
+    $html .= '          <tr><td bgcolor="#f8fafc" style="background-color: #f8fafc; padding: 14px 28px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">FRNP Drone Flight Management System</td></tr>' . "\r\n";
     $html .= '        </table></td></tr></table></body></html>' . "\r\n";
 
     return $html;
@@ -399,7 +399,7 @@ function buildPostFlightReminderHtml(array $flight, array $creator, ?string $ima
 
     $html = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">' . "\r\n";
     $html .= '<html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /></head>' . "\r\n";
-    $html .= '<body style="margin: 0; padding: 20px; background-color: #f0f4f8; font-family: Arial, sans-serif;">' . "\r\n";
+    $html .= '<body style="margin: 0; background-color: #f0f4f8; font-family: Arial, sans-serif;">' . "\r\n";
     $html .= '  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f0f4f8;"><tr><td align="center">' . "\r\n";
     $html .= '      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 640px; background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden;">' . "\r\n";
     $html .= '        <tr><td bgcolor="#b45309" style="padding: 20px 28px; color:#fff;"><h2>Reminder: Complete Post-Flight Debrief Log</h2></td></tr>' . "\r\n";
