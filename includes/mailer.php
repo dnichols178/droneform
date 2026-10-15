@@ -50,7 +50,7 @@ function mercatorLat2Y(float $lat, int $zoom): float {
 }
 
 /**
- * Generates raw PNG binary of ESRI Satellite Imagery stitched with the flight boundary polygon and telemetry.
+ * Generates raw PNG binary of ESRI Satellite Imagery stitched with flight boundary and telemetry
  */
 function generateFlightAreaImageBinary(array $flight): string {
     $width = 584;
@@ -232,12 +232,12 @@ function generateFlightAreaImageBinary(array $flight): string {
 
         imagesetthickness($img, 3);
         imageline($img, $centroidX - 13, $centroidY, $centroidX + 13, $centroidY, $shadow);
-        imageline($img, $centroidX, $centroidY - 13, $centroidX, $centroidY + 13, $shadow);
+        imageline($img, $centroidX, $centroidY - 13, $centroidX + 13, $centroidY, $shadow);
         imageellipse($img, $centroidX, $centroidY, 19, 19, $shadow);
 
         imagesetthickness($img, 2);
         imageline($img, $centroidX - 12, $centroidY, $centroidX + 12, $centroidY, $cyan);
-        imageline($img, $centroidX, $centroidY - 12, $centroidX, $centroidY + 12, $cyan);
+        imageline($img, $centroidX, $centroidY - 12, $centroidX + 12, $centroidY, $cyan);
         imageellipse($img, $centroidX, $centroidY, 18, 18, $cyan);
         imagefilledellipse($img, $centroidX, $centroidY, 5, 5, $white);
         imagesetthickness($img, 1);
@@ -271,9 +271,6 @@ function generateFlightAreaImageBinary(array $flight): string {
     return '';
 }
 
-/**
- * Returns Base64 Data URI for web browser previews
- */
 function generateFlightAreaImageBase64(array $flight): string {
     $binary = generateFlightAreaImageBinary($flight);
     if (!empty($binary)) {
@@ -282,10 +279,6 @@ function generateFlightAreaImageBase64(array $flight): string {
     return '';
 }
 
-/**
- * Builds HTML notification email.
- * $imageSrc can be a data URI (for web previews) or "cid:flight_area_map" (for outbound SMTP delivery).
- */
 function buildFlightNotificationHtml(array $flight, array $recipients, ?string $imageSrc = null): string {
     if ($imageSrc === null) {
         $imageSrc = generateFlightAreaImageBase64($flight);
@@ -335,7 +328,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     $html .= '                    <div style="font-size: 13px; line-height: 18px; color: #1e293b; font-weight: 600;">' . nl2br(htmlspecialchars($flight['mission_purpose'])) . '</div>' . "\r\n";
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
-    // Embedded Flight Boundary Map
+    // Embedded Flight Map
     $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0f172a" style="background-color: #0f172a; border-radius: 6px; overflow: hidden; border: 1px solid #334155;">' . "\r\n";
     $html .= '                <tr><td align="center" style="padding: 0; background-color: #090d16;">' . "\r\n";
@@ -429,7 +422,7 @@ function buildPostFlightReminderText(array $flight, array $creator): string {
 }
 
 /**
- * Pure PHP SMTP client supporting MIME multipart/related for inline CID images (preventing Gmail 102KB clipping)
+ * Pure PHP SMTP client supporting MIME multipart/related for inline CID images
  */
 function sendSmtpMail(array $to, string $subject, string $htmlBody, string $textBody = '', ?string &$errorOutput = null, array $inlineImages = []): bool {
     $host = getSystemSetting('smtp_host', '127.0.0.1');
@@ -443,26 +436,30 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
 
     if (empty($host) || empty($to)) {
         $errorOutput = "SMTP configuration incomplete or no recipients specified.";
+        logSystemError('SMTP', $errorOutput, "Host: {$host}, Recipients: " . implode(', ', $to));
         return false;
     }
 
     $socketHost = ($secure === 'ssl') ? "ssl://{$host}" : $host;
-    $timeout = 3;
+    $timeout = 4;
     $errno = 0;
     $errstr = '';
 
     $socket = @fsockopen($socketHost, $port, $errno, $errstr, $timeout);
     if (!$socket) {
-        $errorOutput = "Failed to connect to SMTP host {$host}:{$port} ({$errstr})";
+        $errorOutput = "Cannot connect to SMTP host {$host}:{$port} ({$errstr})";
+        logSystemError('SMTP', $errorOutput, "Socket: {$socketHost}:{$port}, ErrorNo: {$errno}, ErrorStr: {$errstr}");
         return false;
     }
 
-    stream_set_timeout($socket, 3);
+    stream_set_timeout($socket, 4);
 
-    $getResponse = function() use ($socket) {
+    $transcript = [];
+    $getResponse = function() use ($socket, &$transcript) {
         $response = '';
         while ($line = fgets($socket, 515)) {
             $response .= $line;
+            $transcript[] = "< " . trim($line);
             if (substr($line, 3, 1) === ' ') break;
             $info = stream_get_meta_data($socket);
             if ($info['timed_out']) break;
@@ -470,7 +467,8 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
         return $response;
     };
 
-    $sendCommand = function($cmd) use ($socket, $getResponse) {
+    $sendCommand = function($cmd, $maskLog = false) use ($socket, $getResponse, &$transcript) {
+        $transcript[] = "> " . ($maskLog ? '********' : $cmd);
         fputs($socket, $cmd . "\r\n");
         return $getResponse();
     };
@@ -479,6 +477,7 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
     if (substr($greeting, 0, 3) !== '220') {
         $errorOutput = "Server greeting failed: " . trim($greeting);
         fclose($socket);
+        logSystemError('SMTP', $errorOutput, implode("\n", $transcript));
         return false;
     }
 
@@ -498,18 +497,20 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
     if ($auth && !empty($user)) {
         $sendCommand("AUTH LOGIN");
         $sendCommand(base64_encode($user));
-        $passResp = $sendCommand(base64_encode($pass));
+        $passResp = $sendCommand(base64_encode($pass), true);
         if (substr($passResp, 0, 3) !== '235') {
             $errorOutput = "SMTP Authentication failed: " . trim($passResp);
             fclose($socket);
+            logSystemError('SMTP', $errorOutput, implode("\n", $transcript));
             return false;
         }
     }
 
     $mailFromResp = $sendCommand("MAIL FROM:<{$from}>");
     if (substr($mailFromResp, 0, 3) !== '250') {
-        $errorOutput = "MAIL FROM rejected: " . trim($mailFromResp);
+        $errorOutput = "MAIL FROM <{$from}> rejected: " . trim($mailFromResp);
         fclose($socket);
+        logSystemError('SMTP', $errorOutput, implode("\n", $transcript));
         return false;
     }
 
@@ -518,6 +519,7 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
         if (substr($rcptResp, 0, 3) !== '250' && substr($rcptResp, 0, 3) !== '251') {
             $errorOutput = "Recipient <{$recipient}> rejected: " . trim($rcptResp);
             fclose($socket);
+            logSystemError('SMTP', $errorOutput, implode("\n", $transcript));
             return false;
         }
     }
@@ -526,10 +528,10 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
     if (substr($dataResp, 0, 3) !== '354') {
         $errorOutput = "DATA command rejected: " . trim($dataResp);
         fclose($socket);
+        logSystemError('SMTP', $errorOutput, implode("\n", $transcript));
         return false;
     }
 
-    // Build RFC-compliant MIME boundaries
     $altBoundary = "==Part107_ALT_" . md5(uniqid('alt', true));
     $relBoundary = "==Part107_REL_" . md5(uniqid('rel', true));
 
@@ -585,10 +587,19 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
     $sendCommand("QUIT");
     fclose($socket);
 
-    return (substr($resultResp, 0, 3) === '250');
+    if (substr($resultResp, 0, 3) === '250') {
+        return true;
+    } else {
+        $errorOutput = "Server rejected message body: " . trim($resultResp);
+        logSystemError('SMTP', $errorOutput, implode("\n", $transcript));
+        return false;
+    }
 }
 
-function sendFlightNotification(int $flightId, array $adHocEmails = []): bool {
+/**
+ * Dispatches the official flight notification.
+ */
+function sendFlightNotification(int $flightId, array $adHocEmails = [], ?string &$errorOutput = null): bool {
     $pdo = getDB();
     $stmt = $pdo->prepare("
         SELECT f.*, u.full_name AS pilot_name, u.part107_cert_num, u.phone AS pilot_phone, u.email AS pilot_email
@@ -598,7 +609,11 @@ function sendFlightNotification(int $flightId, array $adHocEmails = []): bool {
     ");
     $stmt->execute([$flightId]);
     $flight = $stmt->fetch();
-    if (!$flight) return false;
+    if (!$flight) {
+        $errorOutput = "Flight record not found.";
+        logSystemError('NOTIFICATION', $errorOutput, "Attempted Flight ID: {$flightId}");
+        return false;
+    }
 
     $mandatoryList = $pdo->query("SELECT email FROM distribution_recipients ORDER BY id ASC")->fetchAll(PDO::FETCH_COLUMN);
     $flightStoredExtras = !empty($flight['additional_emails']) ? explode(',', $flight['additional_emails']) : [];
@@ -613,9 +628,12 @@ function sendFlightNotification(int $flightId, array $adHocEmails = []): bool {
     }
     $recipients = array_values(array_unique($recipients));
 
-    if (empty($recipients)) return false;
+    if (empty($recipients)) {
+        $errorOutput = "No valid recipient email addresses configured.";
+        logSystemError('NOTIFICATION', $errorOutput, "Flight: {$flight['flight_number']}");
+        return false;
+    }
 
-    // Use cid: reference for outbound email transmission to avoid Gmail 102KB clipping
     $imageBinary = generateFlightAreaImageBinary($flight);
     $htmlBody = buildFlightNotificationHtml($flight, $recipients, 'cid:flight_area_map');
     $textBody = buildFlightNotificationText($flight);
@@ -630,14 +648,19 @@ function sendFlightNotification(int $flightId, array $adHocEmails = []): bool {
     }
 
     $subject = "FAA PART 107 FLIGHT AUTHORIZATION NOTIFICATION: " . $flight['flight_number'] . " [" . $flight['facility_name'] . "]";
-    $errorOutput = null;
 
+    // Dispatch via SMTP
     $sent = sendSmtpMail($recipients, $subject, $htmlBody, $textBody, $errorOutput, $inlineImages);
 
-    $toHeader = implode(', ', $recipients);
-    $localNow = date('Y-m-d H:i:s');
-    $logStmt = $pdo->prepare("INSERT INTO notification_logs (flight_id, recipients, sent_subject, sent_body, sent_at) VALUES (?, ?, ?, ?, ?)");
-    $logStmt->execute([$flightId, $toHeader, $subject, $textBody, $localNow]);
+    // Only record in notification_logs IF the email was ACTUALLY delivered
+    if ($sent) {
+        $toHeader = implode(', ', $recipients);
+        $localNow = date('Y-m-d H:i:s');
+        $logStmt = $pdo->prepare("INSERT INTO notification_logs (flight_id, recipients, sent_subject, sent_body, sent_at) VALUES (?, ?, ?, ?, ?)");
+        $logStmt->execute([$flightId, $toHeader, $subject, $textBody, $localNow]);
+    } else {
+        logSystemError('NOTIFICATION', "Notification failed for flight {$flight['flight_number']}: {$errorOutput}", "Flight: {$flight['flight_number']}, Recipients: " . implode(', ', $recipients));
+    }
 
     return $sent;
 }
@@ -700,6 +723,8 @@ function checkAndSendPostFlightReminders(): int {
                 $logStmt = $pdo->prepare("INSERT INTO notification_logs (flight_id, recipients, sent_subject, sent_body, sent_at) VALUES (?, ?, ?, ?, ?)");
                 $logStmt->execute([$f['id'], $recipientEmail, $subject, $textBody, $localNow]);
                 $sentCount++;
+            } else {
+                logSystemError('REMINDER', "Failed sending post-flight reminder for flight {$f['flight_number']}: {$err}", "Recipient: {$recipientEmail}");
             }
         }
     }
