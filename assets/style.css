@@ -101,10 +101,11 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .btn-success { background: var(--success); color: #fff; }
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-outline { background: transparent; border-color: var(--border); color: var(--text-primary); }
-.btn-outline:hover { background: #e2e8f0; }
+.btn-outline:hover { background: #e2e8f0; color: #00739c; }
 .btn-aloft { background: #0084b4; color: #fff; border-color: #00739c; }
 .btn-aloft:hover { background: #006b91; }
 .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.8rem; }
+.nav-user .btn-sm { color: #fff; }
 .btn-block { width: 100%; }
 
 /* Tables & Badges */
