@@ -189,7 +189,21 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                 </div>
             </div>
         </div>
+    <div style="min-width: 0;">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Error Log</h2>
+            </div>
+            <div class="card-body">
+                <div>
+                    <a style="width: 100%" class="btn btn-primary" href="errors.php">View Log</a>
+                </div>
+                </div>
+            </div>
     </div>
+        </div>
+
+    
 
     <!-- RIGHT COLUMN: SERVER SMTP CONFIGURATION & TIMEZONE -->
     <div style="min-width: 0;">
