@@ -105,8 +105,10 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .btn-aloft { background: #0084b4; color: #fff; border-color: #00739c; }
 .btn-aloft:hover { background: #006b91; }
 .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.8rem; }
+
 .nav-user .btn-sm { color: #fff; }
-.nav-user .btn-outline:hover { color: #00739c; }
+.map-toolbar-left .btn-sm { color: #fff; }
+.nav-user .btn-outline:hover, .map-toolbar-left .btn-outline:hover { color: #00739c; }
 .btn-block { width: 100%; }
 
 /* Tables & Badges */
