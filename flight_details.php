@@ -166,7 +166,7 @@ $flightLog = $logStmt->fetch();
 <?php if ($currentStep === '3'): ?>
     <!-- STEP 3: FULL WIDTH OUTLOOK EMAIL REVIEW (Map omitted from side since it is embedded in the email preview) -->
     <?php
-    $previewFrom = getSystemSetting('mail_from_name', 'FRNP Drone Flight Operations') . " <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
+    $previewFrom = "FRNP Drone Flight Operations" . " <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
     $previewTo = implode(', ', $allRecipients);
     $previewSubject = "FRNP Flight Notification " . $flight['flight_number'];
     $previewHtml = buildFlightNotificationHtml($flight, $allRecipients);
@@ -210,7 +210,7 @@ $flightLog = $logStmt->fetch();
                 <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>">
                     <input type="hidden" name="action" value="send_final_notification">
                     <button type="submit" class="btn btn-success" style="font-size: 1.05rem; padding: 0.75rem 1.75rem;">
-                        🚀 Send Notification to Recipients
+                        Send Notification
                     </button>
                 </form>
             </div>
@@ -241,7 +241,7 @@ $flightLog = $logStmt->fetch();
                                 </a>
                                 <button type="button" class="btn btn-outline btn-sm" 
                                         onclick="navigator.clipboard.writeText('<?= $flight['latitude'] ?>, <?= $flight['longitude'] ?>'); alert('Copied coordinates: <?= $flight['latitude'] ?>, <?= $flight['longitude'] ?>');">
-                                    📋 Copy Centroid (<?= $flight['latitude'] ?>, <?= $flight['longitude'] ?>)
+                                    Copy Centroid (<?= $flight['latitude'] ?>, <?= $flight['longitude'] ?>)
                                 </button>
                             </div>
                             <div class="form-hint">
@@ -358,7 +358,7 @@ $flightLog = $logStmt->fetch();
                             <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" onsubmit="return confirm('Are you sure you want to cancel and delete this flight plan? All entered mission parameters, coordinates, and LAANC records will be permanently deleted.');">
                                 <input type="hidden" name="action" value="cancel_flight">
                                 <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: var(--danger);">
-                                    🗑 Cancel &amp; Delete Flight Plan
+                                    X Cancel &amp; Delete Flight Plan
                                 </button>
                             </form>
                             <a href="flight_details.php?id=<?= $flight['id'] ?>&step=review" class="btn btn-primary">
