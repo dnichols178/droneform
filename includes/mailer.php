@@ -340,7 +340,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">' . "\r\n";
     $rows = [
         'Target Facility'         => htmlspecialchars($flight['facility_name']),
-        'Work Package'            => htmlspecialchars($flight['work_package']),
+        'Work Control'            => htmlspecialchars($flight['work_package']),
         'Operational Window'      => htmlspecialchars($flight['flight_date']) . ' (' . htmlspecialchars($flight['start_time']) . ' - ' . htmlspecialchars($flight['end_time']) . ' Local ' . $localTzName . ')',
         'Max Operating Ceiling'   => '<strong>' . htmlspecialchars($flight['max_altitude']) . ' ft AGL</strong>',
         'Centroid Coordinates'    => htmlspecialchars($flight['latitude']) . ', ' . htmlspecialchars($flight['longitude']),
@@ -373,7 +373,7 @@ function buildFlightNotificationText(array $flight): string {
     $body .= "FAA PART 107 OFFICIAL UAS FLIGHT NOTIFICATION\r\n";
     $body .= "====================================================\r\n\r\n";
     $body .= "Flight Plan Number      : " . $flight['flight_number'] . "\r\n";
-    $body .= "Work Package            : " . $flight['work_package'] . "\r\n";
+    $body .= "Work Control            : " . $flight['work_package'] . "\r\n";
     $body .= "Target Facility         : " . $flight['facility_name'] . "\r\n";
     $body .= "Airspace Classification : Class " . $flight['airspace_class'] . "\r\n";
     $body .= "Centroid Coordinates    : " . $flight['latitude'] . ", " . $flight['longitude'] . "\r\n";
