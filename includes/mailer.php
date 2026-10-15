@@ -50,17 +50,15 @@ function mercatorLat2Y(float $lat, int $zoom): float {
 }
 
 /**
- * Generates an embedded base64 image (PNG) showing ESRI Satellite Imagery
- * stitched with the mission boundary polygon, centroid, and telemetry HUD.
+ * Generates raw PNG binary of ESRI Satellite Imagery stitched with the flight boundary polygon and telemetry.
  */
-function generateFlightAreaImageBase64(array $flight): string {
+function generateFlightAreaImageBinary(array $flight): string {
     $width = 584;
     $height = 320;
 
     $lat = (float)($flight['latitude'] ?? 37.115191);
     $lng = (float)($flight['longitude'] ?? -88.811224);
 
-    // Parse boundary coordinates
     $rawCoords = [];
     $allLngs = [$lng];
     $allLats = [$lat];
@@ -82,7 +80,6 @@ function generateFlightAreaImageBase64(array $flight): string {
     $centerLat = ($minLat + $maxLat) / 2.0;
     $centerLng = ($minLng + $maxLng) / 2.0;
 
-    // Calculate optimal zoom level (between 12 and 17) to fit the polygon with margins
     $optimalZoom = 15;
     for ($z = 17; $z >= 12; $z--) {
         $wPx = abs(mercatorLon2X($maxLng, $z) - mercatorLon2X($minLng, $z));
@@ -98,7 +95,6 @@ function generateFlightAreaImageBase64(array $flight): string {
         imagealphablending($img, true);
         imagesavealpha($img, true);
 
-        // Color definitions
         $bgDark = imagecolorallocate($img, 15, 23, 42);
         $gridLine = imagecolorallocate($img, 30, 41, 59);
         $cyan = imagecolorallocate($img, 0, 210, 255);
@@ -111,7 +107,6 @@ function generateFlightAreaImageBase64(array $flight): string {
         $cardBorder = imagecolorallocate($img, 51, 65, 85);
         $shadow = imagecolorallocatealpha($img, 0, 0, 0, 60);
 
-        // Compute pixel bounds relative to center
         $centerX = mercatorLon2X($centerLng, $optimalZoom);
         $centerY = mercatorLat2Y($centerLat, $optimalZoom);
 
@@ -123,13 +118,11 @@ function generateFlightAreaImageBase64(array $flight): string {
         $tileMinY = (int)floor($imgMinY / 256.0);
         $tileMaxY = (int)floor(($imgMinY + $height) / 256.0);
 
-        // Prepare local disk tile cache directory
         $cacheDir = DATA_PATH . '/tile_cache';
         if (!file_exists($cacheDir)) {
             @mkdir($cacheDir, 0777, true);
         }
 
-        // Identify needed tiles
         $tilesToFetch = [];
         $tilesData = [];
 
@@ -149,7 +142,6 @@ function generateFlightAreaImageBase64(array $flight): string {
             }
         }
 
-        // Parallel fetch of missing tiles using curl_multi
         if (!empty($tilesToFetch) && function_exists('curl_multi_init')) {
             $mh = curl_multi_init();
             $curlHandles = [];
@@ -186,7 +178,6 @@ function generateFlightAreaImageBase64(array $flight): string {
             curl_multi_close($mh);
         }
 
-        // Stitch satellite imagery tiles onto the canvas
         $loadedSatCount = 0;
         for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
             for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
@@ -205,7 +196,6 @@ function generateFlightAreaImageBase64(array $flight): string {
             }
         }
 
-        // Fallback grid if offline / no tiles returned
         if ($loadedSatCount === 0) {
             imagefilledrectangle($img, 0, 0, $width, $height, $bgDark);
             for ($x = 0; $x < $width; $x += 35) {
@@ -216,7 +206,6 @@ function generateFlightAreaImageBase64(array $flight): string {
             }
         }
 
-        // Coordinate to pixel projection helper
         $projectX = function($lon) use ($optimalZoom, $imgMinX) {
             return (int)round(mercatorLon2X($lon, $optimalZoom) - $imgMinX);
         };
@@ -224,40 +213,28 @@ function generateFlightAreaImageBase64(array $flight): string {
             return (int)round(mercatorLat2Y($lat, $optimalZoom) - $imgMinY);
         };
 
-        // Draw Polygon flight boundary
         if (!empty($rawCoords) && count($rawCoords) >= 3) {
             $polyPoints = [];
             foreach ($rawCoords as $c) {
                 $polyPoints[] = $projectX($c[0]);
                 $polyPoints[] = $projectY($c[1]);
             }
-
-            // Translucent cyan polygon fill
             imagefilledpolygon($img, $polyPoints, $cyanFill);
-
-            // Bold polygon boundary line
             imagesetthickness($img, 3);
             for ($i = 0; $i < count($rawCoords) - 1; $i++) {
-                $x1 = $projectX($rawCoords[$i][0]);
-                $y1 = $projectY($rawCoords[$i][1]);
-                $x2 = $projectX($rawCoords[$i+1][0]);
-                $y2 = $projectY($rawCoords[$i+1][1]);
-                imageline($img, $x1, $y1, $x2, $y2, $cyan);
+                imageline($img, $projectX($rawCoords[$i][0]), $projectY($rawCoords[$i][1]), $projectX($rawCoords[$i+1][0]), $projectY($rawCoords[$i+1][1]), $cyan);
             }
             imagesetthickness($img, 1);
         }
 
-        // Draw Centroid Crosshairs & Target Marker
         $centroidX = $projectX($lng);
         $centroidY = $projectY($lat);
 
-        // Shadow backing for target visibility over satellite imagery
         imagesetthickness($img, 3);
         imageline($img, $centroidX - 13, $centroidY, $centroidX + 13, $centroidY, $shadow);
         imageline($img, $centroidX, $centroidY - 13, $centroidX, $centroidY + 13, $shadow);
         imageellipse($img, $centroidX, $centroidY, 19, 19, $shadow);
 
-        // Crisp cyan targeting reticle
         imagesetthickness($img, 2);
         imageline($img, $centroidX - 12, $centroidY, $centroidX + 12, $centroidY, $cyan);
         imageline($img, $centroidX, $centroidY - 12, $centroidX, $centroidY + 12, $cyan);
@@ -265,7 +242,6 @@ function generateFlightAreaImageBase64(array $flight): string {
         imagefilledellipse($img, $centroidX, $centroidY, 5, 5, $white);
         imagesetthickness($img, 1);
 
-        // Top Left HUD Banner
         imagefilledrectangle($img, 10, 10, 310, 48, $hudBg);
         imagerectangle($img, 10, 10, 310, 48, $cardBorder);
         imagestring($img, 3, 18, 15, "FLIGHT AREA BOUNDARY MAP", $cyan);
@@ -273,13 +249,11 @@ function generateFlightAreaImageBase64(array $flight): string {
         $alt = $flight['max_altitude'] ?? 0;
         imagestring($img, 2, 18, 30, "Footprint: {$acres} Ac | Ceiling: {$alt} ft AGL", $white);
 
-        // Top Right North Compass Indicator
         imagefilledrectangle($img, $width - 44, 10, $width - 10, 48, $hudBg);
         imagerectangle($img, $width - 44, 10, $width - 10, 48, $cardBorder);
         imagestring($img, 3, $width - 32, 14, "N", $white);
         imageline($img, $width - 27, 28, $width - 27, 39, $cyan);
 
-        // Bottom Telemetry Bar
         imagefilledrectangle($img, 10, $height - 34, $width - 10, $height - 8, $hudBg);
         imagerectangle($img, 10, $height - 34, $width - 10, $height - 8, $cardBorder);
         $coordStr = "Centroid: " . round($lat, 6) . ", " . round($lng, 6);
@@ -291,27 +265,36 @@ function generateFlightAreaImageBase64(array $flight): string {
         imagepng($img);
         $binary = ob_get_clean();
         imagedestroy($img);
-        return 'data:image/png;base64,' . base64_encode($binary);
+        return $binary;
     }
 
-    // Vector SVG Fallback
-    $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="584" height="320" viewBox="0 0 584 320">';
-    $svg .= '<rect width="584" height="320" fill="#0f172a"/>';
-    $svg .= '<circle cx="292" cy="160" r="80" fill="none" stroke="#1e293b" stroke-width="2"/>';
-    $svg .= '<circle cx="292" cy="160" r="5" fill="#00d2ff"/>';
-    $svg .= '<text x="20" y="30" fill="#00d2ff" font-family="Arial" font-size="14" font-weight="bold">FLIGHT OPERATIONAL BOUNDARY MAP</text>';
-    $svg .= '<text x="20" y="52" fill="#f8fafc" font-family="Arial" font-size="12">Footprint: ' . htmlspecialchars($flight['operational_acres']) . ' Acres | Ceiling: ' . htmlspecialchars($flight['max_altitude']) . ' ft AGL</text>';
-    $svg .= '<text x="20" y="305" fill="#94a3b8" font-family="monospace" font-size="11">Centroid: ' . htmlspecialchars($flight['latitude']) . ', ' . htmlspecialchars($flight['longitude']) . ' | Class ' . htmlspecialchars($flight['airspace_class']) . '</text>';
-    $svg .= '</svg>';
-    return 'data:image/svg+xml;base64,' . base64_encode($svg);
+    return '';
 }
 
-function buildFlightNotificationHtml(array $flight, array $recipients): string {
+/**
+ * Returns Base64 Data URI for web browser previews
+ */
+function generateFlightAreaImageBase64(array $flight): string {
+    $binary = generateFlightAreaImageBinary($flight);
+    if (!empty($binary)) {
+        return 'data:image/png;base64,' . base64_encode($binary);
+    }
+    return '';
+}
+
+/**
+ * Builds HTML notification email.
+ * $imageSrc can be a data URI (for web previews) or "cid:flight_area_map" (for outbound SMTP delivery).
+ */
+function buildFlightNotificationHtml(array $flight, array $recipients, ?string $imageSrc = null): string {
+    if ($imageSrc === null) {
+        $imageSrc = generateFlightAreaImageBase64($flight);
+    }
+
     $laancBadgeColor = (!empty($flight['laanc_auth_number']) || $flight['laanc_status'] === 'AUTO_APPROVED') ? '#16a34a' : '#d97706';
     $laancBadgeBg = (!empty($flight['laanc_auth_number']) || $flight['laanc_status'] === 'AUTO_APPROVED') ? '#dcfce7' : '#fef3c7';
     $laancText = !empty($flight['laanc_auth_number']) ? htmlspecialchars($flight['laanc_auth_number']) : ($flight['airspace_class'] === 'G' ? 'NOT REQUIRED (CLASS G)' : 'PENDING');
     $localTzName = date('T');
-    $flightAreaImageBase64 = generateFlightAreaImageBase64($flight);
 
     $html = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">' . "\r\n";
     $html .= '<html xmlns="http://www.w3.org/1999/xhtml">' . "\r\n";
@@ -344,11 +327,19 @@ function buildFlightNotificationHtml(array $flight, array $recipients): string {
     }
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
-    // Embedded Base64 Flight Map
+    // Mission Scope
+    $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
+    $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f8fafc" style="background-color: #f8fafc; border-left: 4px solid #0284c7; border-radius: 4px; border: 1px solid #e2e8f0;">' . "\r\n";
+    $html .= '                <tr><td style="padding: 14px 18px;">' . "\r\n";
+    $html .= '                    <div style="font-size: 11px; font-weight: 700; color: #0369a1; text-transform: uppercase; margin-bottom: 4px;">Required Mission Scope</div>' . "\r\n";
+    $html .= '                    <div style="font-size: 13px; line-height: 18px; color: #1e293b; font-weight: 600;">' . nl2br(htmlspecialchars($flight['mission_purpose'])) . '</div>' . "\r\n";
+    $html .= '                </td></tr></table></td></tr>' . "\r\n";
+
+    // Embedded Flight Boundary Map
     $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0f172a" style="background-color: #0f172a; border-radius: 6px; overflow: hidden; border: 1px solid #334155;">' . "\r\n";
     $html .= '                <tr><td align="center" style="padding: 0; background-color: #090d16;">' . "\r\n";
-    $html .= '                    <img src="' . $flightAreaImageBase64 . '" alt="Flight Area Map" width="584" style="width: 100%; max-width: 584px; height: auto; display: block; border: 0;" />' . "\r\n";
+    $html .= '                    <img src="' . $imageSrc . '" alt="Flight Area Map" width="584" style="width: 100%; max-width: 584px; height: auto; display: block; border: 0;" />' . "\r\n";
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
     // Operations Data Table
@@ -389,16 +380,26 @@ function buildFlightNotificationText(array $flight): string {
     $body .= "FAA PART 107 OFFICIAL UAS FLIGHT NOTIFICATION\r\n";
     $body .= "====================================================\r\n\r\n";
     $body .= "Flight Plan Number      : " . $flight['flight_number'] . "\r\n";
+    $body .= "Work Package            : " . $flight['work_package'] . "\r\n";
     $body .= "Target Facility         : " . $flight['facility_name'] . "\r\n";
+    $body .= "Airspace Classification : Class " . $flight['airspace_class'] . "\r\n";
+    $body .= "Centroid Coordinates    : " . $flight['latitude'] . ", " . $flight['longitude'] . "\r\n";
+    $body .= "Operating Footprint     : " . $flight['operational_acres'] . " Acres\r\n";
     $body .= "Scheduled Date          : " . $flight['flight_date'] . "\r\n";
     $body .= "Operational Window      : " . $flight['start_time'] . " to " . $flight['end_time'] . " Local (" . $localTzName . ")\r\n";
-    $body .= "Max Authorized Altitude : " . $flight['max_altitude'] . " ft AGL\r\n";
+    $body .= "Max Authorized Altitude : " . $flight['max_altitude'] . " ft AGL\r\n\r\n";
     $body .= "Remote Pilot in Command : " . $flight['pilot_name'] . "\r\n";
+    $body .= "Part 107 Certificate #  : " . ($flight['part107_cert_num'] ?: 'ON FILE') . "\r\n";
+    $body .= "Emergency Phone Contact : " . $flight['pilot_phone'] . "\r\n";
+    $body .= "Pilot Email             : " . $flight['pilot_email'] . "\r\n";
     return $body;
 }
 
-function buildPostFlightReminderHtml(array $flight, array $creator): string {
-    $flightAreaImageBase64 = generateFlightAreaImageBase64($flight);
+function buildPostFlightReminderHtml(array $flight, array $creator, ?string $imageSrc = null): string {
+    if ($imageSrc === null) {
+        $imageSrc = generateFlightAreaImageBase64($flight);
+    }
+
     $localTzName = date('T');
     $appUrl = (isset($_SERVER['HTTP_HOST']) ? ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . $_SERVER['HTTP_HOST']) : '') . dirname($_SERVER['PHP_SELF'] ?? '');
     $logUrl = rtrim($appUrl, '/') . '/flight_log.php?flight_id=' . $flight['id'];
@@ -414,7 +415,7 @@ function buildPostFlightReminderHtml(array $flight, array $creator): string {
     $html .= '          <p>The post-flight telemetry and Part 107 log for flight plan <strong>' . htmlspecialchars($flight['flight_number']) . '</strong> scheduled on <strong>' . htmlspecialchars($flight['flight_date']) . '</strong> has not yet been recorded (> 24 hours elapsed).</p>' . "\r\n";
     $html .= '          <div style="text-align: center; margin: 20px 0;"><a href="' . htmlspecialchars($logUrl) . '" style="background:#0284c7; color:#fff; padding:10px 20px; text-decoration:none; border-radius:5px; font-weight:bold;">Submit Post-Flight Log Now</a></div>' . "\r\n";
     $html .= '        </td></tr>' . "\r\n";
-    $html .= '        <tr><td align="center" style="padding: 0 28px 20px 28px;"><img src="' . $flightAreaImageBase64 . '" alt="Flight Area" width="584" style="width:100%; max-width:584px; display:block; border-radius:4px;" /></td></tr>' . "\r\n";
+    $html .= '        <tr><td align="center" style="padding: 0 28px 20px 28px;"><img src="' . $imageSrc . '" alt="Flight Area" width="584" style="width:100%; max-width:584px; display:block; border-radius:4px;" /></td></tr>' . "\r\n";
     $html .= '      </table></td></tr></table></body></html>' . "\r\n";
     return $html;
 }
@@ -427,7 +428,10 @@ function buildPostFlightReminderText(array $flight, array $creator): string {
     return $body;
 }
 
-function sendSmtpMail(array $to, string $subject, string $htmlBody, string $textBody = '', ?string &$errorOutput = null): bool {
+/**
+ * Pure PHP SMTP client supporting MIME multipart/related for inline CID images (preventing Gmail 102KB clipping)
+ */
+function sendSmtpMail(array $to, string $subject, string $htmlBody, string $textBody = '', ?string &$errorOutput = null, array $inlineImages = []): bool {
     $host = getSystemSetting('smtp_host', '127.0.0.1');
     $port = (int)getSystemSetting('smtp_port', '25');
     $auth = getSystemSetting('smtp_auth', '0') === '1';
@@ -443,7 +447,7 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
     }
 
     $socketHost = ($secure === 'ssl') ? "ssl://{$host}" : $host;
-    $timeout = 2;
+    $timeout = 3;
     $errno = 0;
     $errstr = '';
 
@@ -453,7 +457,7 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
         return false;
     }
 
-    stream_set_timeout($socket, 2);
+    stream_set_timeout($socket, 3);
 
     $getResponse = function() use ($socket) {
         $response = '';
@@ -525,24 +529,56 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
         return false;
     }
 
-    $boundary = "==Part107_MIME_" . md5(uniqid());
+    // Build RFC-compliant MIME boundaries
+    $altBoundary = "==Part107_ALT_" . md5(uniqid('alt', true));
+    $relBoundary = "==Part107_REL_" . md5(uniqid('rel', true));
+
     $headers = "From: =?UTF-8?B?" . base64_encode($fromName) . "?= <{$from}>\r\n" .
                "To: " . implode(', ', $to) . "\r\n" .
                "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\n" .
                "Date: " . date('r') . "\r\n" .
-               "MIME-Version: 1.0\r\n" .
-               "Content-Type: multipart/alternative; boundary=\"{$boundary}\"\r\n" .
-               "X-Mailer: Part107-UAS-Platform\r\n\r\n";
+               "MIME-Version: 1.0\r\n";
 
-    $mimeContent = "--{$boundary}\r\n" .
-                   "Content-Type: text/plain; charset=UTF-8\r\n" .
-                   "Content-Transfer-Encoding: 8bit\r\n\r\n" .
-                   $textBody . "\r\n\r\n" .
-                   "--{$boundary}\r\n" .
-                   "Content-Type: text/html; charset=UTF-8\r\n" .
-                   "Content-Transfer-Encoding: 8bit\r\n\r\n" .
-                   $htmlBody . "\r\n\r\n" .
-                   "--{$boundary}--\r\n";
+    if (!empty($inlineImages)) {
+        $headers .= "Content-Type: multipart/related; boundary=\"{$relBoundary}\"\r\n" .
+                    "X-Mailer: Part107-UAS-Platform\r\n\r\n";
+
+        $mimeContent = "--{$relBoundary}\r\n" .
+                       "Content-Type: multipart/alternative; boundary=\"{$altBoundary}\"\r\n\r\n" .
+                       "--{$altBoundary}\r\n" .
+                       "Content-Type: text/plain; charset=UTF-8\r\n" .
+                       "Content-Transfer-Encoding: 8bit\r\n\r\n" .
+                       $textBody . "\r\n\r\n" .
+                       "--{$altBoundary}\r\n" .
+                       "Content-Type: text/html; charset=UTF-8\r\n" .
+                       "Content-Transfer-Encoding: 8bit\r\n\r\n" .
+                       $htmlBody . "\r\n\r\n" .
+                       "--{$altBoundary}--\r\n\r\n";
+
+        foreach ($inlineImages as $cid => $img) {
+            $base64Data = chunk_split(base64_encode($img['data']));
+            $mimeContent .= "--{$relBoundary}\r\n" .
+                           "Content-Type: {$img['type']}; name=\"{$img['filename']}\"\r\n" .
+                           "Content-Transfer-Encoding: base64\r\n" .
+                           "Content-ID: <{$cid}>\r\n" .
+                           "Content-Disposition: inline; filename=\"{$img['filename']}\"\r\n\r\n" .
+                           $base64Data . "\r\n\r\n";
+        }
+        $mimeContent .= "--{$relBoundary}--\r\n";
+    } else {
+        $headers .= "Content-Type: multipart/alternative; boundary=\"{$altBoundary}\"\r\n" .
+                    "X-Mailer: Part107-UAS-Platform\r\n\r\n";
+
+        $mimeContent = "--{$altBoundary}\r\n" .
+                       "Content-Type: text/plain; charset=UTF-8\r\n" .
+                       "Content-Transfer-Encoding: 8bit\r\n\r\n" .
+                       $textBody . "\r\n\r\n" .
+                       "--{$altBoundary}\r\n" .
+                       "Content-Type: text/html; charset=UTF-8\r\n" .
+                       "Content-Transfer-Encoding: 8bit\r\n\r\n" .
+                       $htmlBody . "\r\n\r\n" .
+                       "--{$altBoundary}--\r\n";
+    }
 
     fputs($socket, $headers . $mimeContent . "\r\n.\r\n");
     $resultResp = $getResponse();
@@ -579,12 +615,24 @@ function sendFlightNotification(int $flightId, array $adHocEmails = []): bool {
 
     if (empty($recipients)) return false;
 
-    $subject = "FAA PART 107 FLIGHT AUTHORIZATION NOTIFICATION: " . $flight['flight_number'] . " [" . $flight['facility_name'] . "]";
-    $htmlBody = buildFlightNotificationHtml($flight, $recipients);
+    // Use cid: reference for outbound email transmission to avoid Gmail 102KB clipping
+    $imageBinary = generateFlightAreaImageBinary($flight);
+    $htmlBody = buildFlightNotificationHtml($flight, $recipients, 'cid:flight_area_map');
     $textBody = buildFlightNotificationText($flight);
+
+    $inlineImages = [];
+    if (!empty($imageBinary)) {
+        $inlineImages['flight_area_map'] = [
+            'data'     => $imageBinary,
+            'type'     => 'image/png',
+            'filename' => 'flight_boundary.png'
+        ];
+    }
+
+    $subject = "FAA PART 107 FLIGHT AUTHORIZATION NOTIFICATION: " . $flight['flight_number'] . " [" . $flight['facility_name'] . "]";
     $errorOutput = null;
 
-    $sent = sendSmtpMail($recipients, $subject, $htmlBody, $textBody, $errorOutput);
+    $sent = sendSmtpMail($recipients, $subject, $htmlBody, $textBody, $errorOutput, $inlineImages);
 
     $toHeader = implode(', ', $recipients);
     $localNow = date('Y-m-d H:i:s');
@@ -629,12 +677,23 @@ function checkAndSendPostFlightReminders(): int {
                 'email'     => $recipientEmail
             ];
 
-            $subject = "ACTION REQUIRED: Complete Post-Flight Log for " . $f['flight_number'] . " [" . $f['facility_name'] . "]";
-            $htmlBody = buildPostFlightReminderHtml($f, $creator);
+            $imageBinary = generateFlightAreaImageBinary($f);
+            $htmlBody = buildPostFlightReminderHtml($f, $creator, 'cid:flight_area_map');
             $textBody = buildPostFlightReminderText($f, $creator);
+
+            $inlineImages = [];
+            if (!empty($imageBinary)) {
+                $inlineImages['flight_area_map'] = [
+                    'data'     => $imageBinary,
+                    'type'     => 'image/png',
+                    'filename' => 'flight_boundary.png'
+                ];
+            }
+
+            $subject = "ACTION REQUIRED: Complete Post-Flight Log for " . $f['flight_number'] . " [" . $f['facility_name'] . "]";
             $err = null;
 
-            if (sendSmtpMail([$recipientEmail], $subject, $htmlBody, $textBody, $err)) {
+            if (sendSmtpMail([$recipientEmail], $subject, $htmlBody, $textBody, $err, $inlineImages)) {
                 $localNow = date('Y-m-d H:i:s');
                 $pdo->prepare("UPDATE flights SET reminder_sent_at = ? WHERE id = ?")->execute([$localNow, $f['id']]);
 
