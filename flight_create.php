@@ -112,7 +112,7 @@ $pilots = $isAdmin ? $pdo->query("SELECT * FROM users WHERE is_active = 1 ORDER 
                     </div>
 
                     <div class="form-group">
-                        <label for="facility_name">Target Facility</label>
+                        <label for="facility_name">Facility</label>
                         <input type="text" id="facility_name" name="facility_name" class="form-control" placeholder="e.g. Barkley West Solar Array" value="<?= htmlspecialchars($_POST['facility_name'] ?? '') ?>" required>
                     </div>
 
@@ -172,7 +172,7 @@ $pilots = $isAdmin ? $pdo->query("SELECT * FROM users WHERE is_active = 1 ORDER 
 
                     <div class="form-group">
                         <label for="aircraft_model">UAS Aircraft Model</label>
-                        <input type="text" id="aircraft_model" name="aircraft_model" class="form-control" placeholder="e.g. DJI Matrice 350 RTK" value="<?= htmlspecialchars($_POST['aircraft_model'] ?? '') ?>" required>
+                        <input type="text" id="aircraft_model" name="aircraft_model" class="form-control" placeholder="e.g. Skydio X10D" value="<?= htmlspecialchars($_POST['aircraft_model'] ?? '') ?>" required>
                     </div>
 
                     <div class="form-group">
@@ -206,10 +206,7 @@ $pilots = $isAdmin ? $pdo->query("SELECT * FROM users WHERE is_active = 1 ORDER 
                     <div class="map-toolbar-left">
                         <button type="button" id="btn-draw-polygon" class="btn btn-aloft btn-sm">  Draw Flight Polygon</button>
                         <button type="button" id="btn-clear-polygon" class="btn btn-outline btn-sm" style="color: #cbd5e1; border-color: #475569;">Reset</button>
-                        <span id="polygon-draw-status" class="map-mode-indicator">Define mission airspace boundary on the map.</span>
-                    </div>
-                    <div>
-                        <span class="badge badge-info">Aloft UI Engine</span>
+                        <span id="polygon-draw-status" class="map-mode-indicator">Define mission airspace</span>
                     </div>
                 </div>
                 <div id="flight-polygon-map" 
