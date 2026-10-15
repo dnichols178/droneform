@@ -42,8 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if (!filter_var($testTo, FILTER_VALIDATE_EMAIL)) {
         $err = "Please enter a valid email address for the test.";
     } else {
-        $testSubject = "UAS Part 107 Ops Platform: SMTP Test Connection";
-        $testBody = "This is a test notification verifying the SMTP relay settings on the Part 107 Flight Operations Platform.\r\n" .
+        $testSubject = "FRNP Drone Flight Management System SMTP Test Connection";
+        $testBody = "This is a test notification verifying the SMTP relay settings on the FRNP Drone Flight Management System .\r\n" .
                     "Local Timestamp: " . date('Y-m-d H:i:s T') . "\r\n" .
                     "Host: " . getSystemSetting('smtp_host') . ":" . getSystemSetting('smtp_port') . "\r\n";
         $testError = null;
@@ -112,12 +112,12 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
     <div style="min-width: 0;">
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Mandatory Procedural Distribution List</h2>
+                <h2 class="card-title">Mandatory Distribution List</h2>
                 <span class="badge badge-neutral"><?= count($recipients) ?> Required Contacts</span>
             </div>
             <div class="card-body">
                 <p class="form-hint" style="margin-bottom: 1.25rem;">
-                    These contacts are required by flight safety procedures. They automatically receive official flight plan notifications once LAANC authorization is recorded.
+                    These contacts are required by flight procedures. They automatically receive official flight plan notifications once LAANC authorization is recorded.
                 </p>
                 <div class="table-responsive" style="margin-bottom: 1.5rem;">
                     <table class="table">
@@ -131,7 +131,7 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                         </thead>
                         <tbody>
                             <?php if (empty($recipients)): ?>
-                                <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No procedural recipients configured.</td></tr>
+                                <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No recipients configured.</td></tr>
                             <?php else: foreach ($recipients as $r): ?>
                                 <tr>
                                     <td><strong><?= htmlspecialchars($r['full_name']) ?></strong></td>
@@ -153,7 +153,7 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
 
                 <div class="card" style="border: 1px solid var(--border-light); background: #f8fafc;">
                     <div class="card-header" style="background: transparent;">
-                        <span class="card-title" style="font-size: 1rem;">Add Required Procedural Contact</span>
+                        <span class="card-title" style="font-size: 1rem;">Add Required Contact</span>
                     </div>
                     <div class="card-body">
                         <form method="POST" action="settings.php">
@@ -179,7 +179,7 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                     <div class="card-header"><h3 class="card-title" style="font-size: 1rem;">Post-Flight Log Reminder Trigger</h3></div>
                     <div class="card-body">
                         <p class="form-hint" style="margin-bottom: 0.75rem;">
-                            Reminders are automatically dispatched periodically and via CLI cron. Click below to immediately trigger an audit scan for overdue logs (> 1 day post-flight).
+                            Reminders are automatically dispatched periodically. Click below to immediately trigger an audit scan for overdue logs (> 1 day post-flight).
                         </p>
                         <form method="POST" action="settings.php">
                             <input type="hidden" name="action" value="run_reminders">
