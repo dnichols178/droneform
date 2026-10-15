@@ -36,8 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body class="auth-wrapper">
     <div class="auth-card">
         <div class="auth-header">
-            <h1>Part 107 UAS Flight Hub</h1>
-            <p>Commercial Drone Operations &amp; Airspace Management</p>
+            <img width="100%" src="https://fourriversnuclearpartnership.com/sites/default/files/frnp_logo.png">
+            <p>Drone Flight Management and Notification System</p>
         </div>
 
         <?php if ($error): ?>
@@ -57,10 +57,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <button type="submit" class="btn btn-primary btn-block">Authenticate &amp; Enter</button>
         </form>
-
-        <p class="form-hint" style="margin-top:1rem; text-align:center;">
-            Initial Setup Admin: <code>admin</code> / <code>Admin@107</code>
-        </p>
     </div>
 </body>
 </html>
