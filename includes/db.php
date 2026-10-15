@@ -145,6 +145,17 @@ function initSchema(PDO $pdo): void {
         setting_value TEXT
     );");
 
+    // 8. System & Error Logs Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS error_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        error_type TEXT NOT NULL DEFAULT 'GENERAL',
+        message TEXT NOT NULL,
+        details TEXT,
+        user_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    );");
+
     // Seed default admin account
     $defaultAdminPass = password_hash('Admin@107', PASSWORD_DEFAULT);
     $pdo->prepare("INSERT OR IGNORE INTO users (username, password_hash, full_name, email, phone, part107_cert_num, role)
@@ -188,6 +199,16 @@ function migrateSchema(PDO $pdo): void {
         setting_value TEXT
     );");
 
+    $pdo->exec("CREATE TABLE IF NOT EXISTS error_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        error_type TEXT NOT NULL DEFAULT 'GENERAL',
+        message TEXT NOT NULL,
+        details TEXT,
+        user_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    );");
+
     $defaultSettings = [
         'smtp_host'    => '127.0.0.1',
         'smtp_port'    => '25',
@@ -218,5 +239,23 @@ function migrateSchema(PDO $pdo): void {
         if (!in_array('reminder_sent_at', $flightCols, true)) {
             $pdo->exec("ALTER TABLE flights ADD COLUMN reminder_sent_at DATETIME");
         }
+    }
+}
+
+/**
+ * Global Error Logging Utility
+ */
+function logSystemError(string $type, string $message, ?string $details = null, ?int $userId = null): void {
+    try {
+        $pdo = getDB();
+        if ($userId === null && !empty($_SESSION['user_id'])) {
+            $userId = (int)$_SESSION['user_id'];
+        }
+        $localNow = date('Y-m-d H:i:s');
+        $stmt = $pdo->prepare("INSERT INTO error_logs (error_type, message, details, user_id, created_at) VALUES (?, ?, ?, ?, ?)");
+        $stmt->execute([strtoupper(trim($type)), trim($message), $details ? trim($details) : null, $userId, $localNow]);
+    } catch (Exception $e) {
+        // Fallback to PHP native log if database write fails
+        error_log("[{$type}] {$message} | Details: " . ($details ?? 'None'));
     }
 }
