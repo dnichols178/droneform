@@ -173,7 +173,7 @@ $flightLog = $logStmt->fetch();
     ?>
     <div class="card" style="border-top: 4px solid var(--success); max-width: 960px; margin: 0 auto 2rem auto;">
         <div class="card-header">
-            <h2 class="card-title">Step 3: Review Notification Email (Outlook Layout)</h2>
+            <h2 class="card-title">Step 3: Review Notification Email</h2>
             <a href="flight_details.php?id=<?= $flight['id'] ?>" class="btn btn-outline btn-sm">← Back to Draft</a>
         </div>
         <div class="card-body">
