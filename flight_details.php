@@ -9,6 +9,7 @@ $pdo = getDB();
 $flightId = (int)($_GET['id'] ?? 0);
 $actionMsg = '';
 $actionError = '';
+$keepOnStep3 = false;
 
 // Handle POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -38,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("
                     UPDATE flights SET 
                          laanc_auth_number = ?, 
-                         laanc_status = 'APPROVED', 
+                         laanc_status = 'AUTO_APPROVED', 
                          laanc_authorized_at = ? 
                      WHERE id = ?
                 ");
@@ -61,19 +62,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // STEP 3: Dispatch final notification email
     if ($action === 'send_final_notification') {
-        if (sendFlightNotification($flightId)) {
+        $smtpError = null;
+        if (sendFlightNotification($flightId, [], $smtpError)) {
             header("Location: flight_details.php?id={$flightId}&msg=notification_sent");
             exit;
         } else {
-            $actionError = 'Failed to transmit notification via SMTP relay. Check server settings.';
+            $actionError = 'Failed to transmit notification via SMTP relay: ' . ($smtpError ?: 'Check server configuration and recipients.');
+            $keepOnStep3 = true;
         }
     }
 
     // Secondary resend
     if ($action === 'resend_notification') {
         $extra = array_filter(array_map('trim', explode(',', $_POST['extra_emails'] ?? '')));
-        if (sendFlightNotification($flightId, $extra)) {
+        $smtpError = null;
+        if (sendFlightNotification($flightId, $extra, $smtpError)) {
             $actionMsg = 'Flight notification emails successfully re-dispatched.';
+        } else {
+            $actionError = 'Failed to re-dispatch notification: ' . ($smtpError ?: 'Check server configuration.');
         }
     }
 }
@@ -111,10 +117,10 @@ $laancIsComplete = (!empty($flight['laanc_auth_number']) || $flight['airspace_cl
 
 if (!$laancIsComplete) {
     $currentStep = '1';
-} elseif (!$hasSentNotifications && (!isset($_GET['step']) || $_GET['step'] !== 'review')) {
-    $currentStep = '2';
-} elseif (!$hasSentNotifications && isset($_GET['step']) && $_GET['step'] === 'review') {
+} elseif ($keepOnStep3 || (!$hasSentNotifications && isset($_GET['step']) && $_GET['step'] === 'review')) {
     $currentStep = '3';
+} elseif (!$hasSentNotifications) {
+    $currentStep = '2';
 } else {
     $currentStep = 'complete';
 }
@@ -172,7 +178,7 @@ $flightLog = $logStmt->fetch();
         </div>
         <div class="card-body">
             <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1rem;">
-                This preview renders the Microsoft Outlook-compatible HTML email that will be transmitted to all required personnel (with embedded base64 flight boundary map):
+                This preview renders the Microsoft Outlook-compatible HTML email that will be transmitted to all required personnel:
             </p>
             <div class="email-preview-card" style="margin-bottom: 1.5rem;">
                 <div class="email-preview-meta">
