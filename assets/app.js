@@ -158,7 +158,7 @@ function initFlightPlannerMap() {
 
     function completePolygon() {
         if (polygonPoints.length < 3) {
-            alert('A flight polygon requires at least 3 points to enclose airspace.');
+            alert('A flight polygon requires at least 3 points to enclose airspace');
             return;
         }
 
@@ -167,7 +167,7 @@ function initFlightPlannerMap() {
             drawBtn.textContent = 'Redraw Polygon';
             drawBtn.className = 'btn btn-aloft btn-sm';
         }
-        if (statusText) statusText.textContent = 'Flight boundary enclosed.';
+        if (statusText) statusText.textContent = 'Flight boundary established';
 
         if (drawnPolygon) map.removeLayer(drawnPolygon);
 
