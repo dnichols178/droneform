@@ -1,32 +1,70 @@
 <?php
+require_once __DIR__ . '/includes/config.php';
+require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/db.php';
+
+requireLogin();
+$pdo = getDB();
+$currentUser = getCurrentUser();
+$isAdmin = ($currentUser && strtolower(trim($currentUser['role'])) === 'admin');
+
+/**
+ * Returns the 2-digit Fiscal Year (FY) for a given date.
+ * Fiscal year begins on October 1st:
+ * - Oct 1, 2026 to Sep 30, 2027 -> FY27 (prefix FP-27-)
+ * - Oct 1, 2027 to Sep 30, 2028 -> FY28 (prefix FP-28-)
+ */
+function getFiscalYearTwoDigit(?string $dateStr = null): string {
+    $ts = !empty($dateStr) ? strtotime($dateStr) : time();
+    if (!$ts) {
+        $ts = time();
+    }
+    $month = (int)date('n', $ts);
+    $year  = (int)date('Y', $ts);
+    $fiscalYear = ($month >= 10) ? ($year + 1) : $year;
+    return substr((string)$fiscalYear, -2);
+}
+
+/**
+ * Generates the next sequential flight plan number for a specific flight date's fiscal year.
+ */
+function generateNextFlightNumber(PDO $pdo, ?string $flightDate = null): string {
+    $twoDigitFY = getFiscalYearTwoDigit($flightDate);
+    $yearPrefix = "FP-" . $twoDigitFY . "-";
+
+    $countStmt = $pdo->prepare("SELECT flight_number FROM flights WHERE flight_number LIKE ? ORDER BY flight_number DESC LIMIT 1");
+    $countStmt->execute([$yearPrefix . '%']);
+    $lastFlight = $countStmt->fetchColumn();
+
+    if ($lastFlight) {
+        $parts = explode('-', $lastFlight);
+        $lastSeqStr = end($parts);
+        $lastSeq = (int)$lastSeqStr;
+        $nextSeq = $lastSeq + 1;
+        $padLen = max(3, strlen($lastSeqStr));
+        return sprintf("FP-%s-%0" . $padLen . "d", $twoDigitFY, $nextSeq);
+    } else {
+        return sprintf("FP-%s-001", $twoDigitFY);
+    }
+}
+
+// AJAX endpoint to dynamically update flight plan number if flight date is changed on the client
+if (isset($_GET['action']) && $_GET['action'] === 'get_flight_number') {
+    header('Content-Type: application/json');
+    $date = $_GET['flight_date'] ?? date('Y-m-d');
+    echo json_encode(['flight_number' => generateNextFlightNumber($pdo, $date)]);
+    exit;
+}
+
 $pageTitle = 'Plan & Schedule Flight (Aloft Polygon Engine)';
 $currentPage = 'create_flight';
 require_once __DIR__ . '/includes/header.php';
 
-$pdo = getDB();
-$currentUser = getCurrentUser();
-$isAdmin = ($currentUser && strtolower(trim($currentUser['role'])) === 'admin');
 $err = '';
-
-// Generate next flight plan number: FP-YY-001 with yearly reset
-$twoDigitYear = date('y');
-$yearPrefix = "FP-" . $twoDigitYear . "-";
-
-$countStmt = $pdo->prepare("SELECT flight_number FROM flights WHERE flight_number LIKE ? ORDER BY flight_number DESC LIMIT 1");
-$countStmt->execute([$yearPrefix . '%']);
-$lastFlight = $countStmt->fetchColumn();
-
-if ($lastFlight) {
-    $parts = explode('-', $lastFlight);
-    $lastSeq = (int)end($parts);
-    $nextSeq = $lastSeq + 1;
-} else {
-    $nextSeq = 1;
-}
-$suggestedFlightNumber = sprintf("FP-%s-%03d", $twoDigitYear, $nextSeq);
+$defaultFlightDate = $_POST['flight_date'] ?? date('Y-m-d');
+$suggestedFlightNumber = generateNextFlightNumber($pdo, $defaultFlightDate);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $flightNumber = trim($_POST['flight_number'] ?? '');
     $workPackage = trim($_POST['work_package'] ?? '');
     $facilityName = trim($_POST['facility_name'] ?? '');
     
@@ -40,7 +78,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Capture the user who created/entered the flight plan
     $createdBy = (int)$currentUser['id'];
 
-    $flightDate = $_POST['flight_date'] ?? '';
+    $flightDate = $_POST['flight_date'] ?? date('Y-m-d');
+    
+    // Enforce fiscal year flight numbering strictly based on the submitted flight date
+    $flightNumber = generateNextFlightNumber($pdo, $flightDate);
+
     $startTime = $_POST['start_time'] ?? '';
     $endTime = $_POST['end_time'] ?? '';
     $maxAltitude = (int)($_POST['max_altitude'] ?? 0);
@@ -103,7 +145,7 @@ $pilots = $isAdmin ? $pdo->query("SELECT * FROM users WHERE is_active = 1 ORDER 
                 <div class="card-body">
                     <div class="form-group">
                         <label for="flight_number">Flight Plan #</label>
-                        <input type="text" id="flight_number" name="flight_number" class="form-control" value="<?= htmlspecialchars($suggestedFlightNumber) ?>" readonly required>
+                        <input type="text" id="flight_number" name="flight_number" class="form-control" value="<?= htmlspecialchars($suggestedFlightNumber) ?>" readonly required style="font-family: monospace; font-weight: bold; background-color: #f8fafc;">
                     </div>
 
                     <div class="form-group">
@@ -156,7 +198,7 @@ $pilots = $isAdmin ? $pdo->query("SELECT * FROM users WHERE is_active = 1 ORDER 
 
                     <div class="form-group">
                         <label for="flight_date">Flight Date</label>
-                        <input type="date" id="flight_date" name="flight_date" class="form-control" value="<?= htmlspecialchars($_POST['flight_date'] ?? date('Y-m-d')) ?>" required>
+                        <input type="date" id="flight_date" name="flight_date" class="form-control" value="<?= htmlspecialchars($defaultFlightDate) ?>" required>
                     </div>
 
                     <div class="grid grid-cols-2">
@@ -229,5 +271,28 @@ $pilots = $isAdmin ? $pdo->query("SELECT * FROM users WHERE is_active = 1 ORDER 
         </div>
     </div>
 </form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const dateInput = document.getElementById('flight_date');
+    const flightNumInput = document.getElementById('flight_number');
+
+    if (dateInput && flightNumInput) {
+        dateInput.addEventListener('change', function() {
+            const selectedDate = this.value;
+            if (!selectedDate) return;
+
+            fetch('flight_create.php?action=get_flight_number&flight_date=' + encodeURIComponent(selectedDate))
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.flight_number) {
+                        flightNumInput.value = data.flight_number;
+                    }
+                })
+                .catch(err => console.error('Error fetching fiscal year flight number:', err));
+        });
+    }
+});
+</script>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>
