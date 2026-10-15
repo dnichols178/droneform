@@ -107,7 +107,7 @@ $pilots = $isAdmin ? $pdo->query("SELECT * FROM users WHERE is_active = 1 ORDER 
                     </div>
 
                     <div class="form-group">
-                        <label for="work_package">Work Package</label>
+                        <label for="work_package">Work Control</label>
                         <input type="text" id="work_package" name="work_package" class="form-control" placeholder="e.g. WP-2026-Tower-Inspection" value="<?= htmlspecialchars($_POST['work_package'] ?? '') ?>" required>
                     </div>
 
