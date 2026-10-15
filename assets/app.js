@@ -193,7 +193,7 @@ function initFlightPlannerMap() {
         if (acresDisplay) acresDisplay.textContent = '0.00';
         if (centerDisplay) centerDisplay.textContent = `${defaultLat}, ${defaultLng}`;
         if (acresInput) acresInput.value = '0';
-        if (statusText) statusText.textContent = 'Click "Draw Flight Polygon" to plot mission area.';
+        if (statusText) statusText.textContent = 'Click "Draw Flight Polygon" to plot mission area';
         if (drawBtn) {
             drawBtn.textContent = '⬟ Draw Flight Polygon';
             drawBtn.className = 'btn btn-aloft btn-sm';
