@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("
                     UPDATE flights SET 
                          laanc_auth_number = ?, 
-                         laanc_status = 'AUTO_APPROVED', 
+                         laanc_status = 'APPROVED', 
                          laanc_authorized_at = ? 
                      WHERE id = ?
                 ");
