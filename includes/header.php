@@ -20,8 +20,7 @@ $user = getCurrentUser();
 
 <nav class="navbar">
     <div class="nav-brand">
-        <span class="badge-icon">🚁</span>
-        <strong>Part 107 Ops Platform</strong>
+        <strong>FRNP Drone Flight Management System</strong>
     </div>
     <ul class="nav-links">
         <li><a href="dashboard.php" class="<?= ($currentPage ?? '') === 'dashboard' ? 'active' : '' ?>">Dashboard</a></li>
