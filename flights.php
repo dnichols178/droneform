@@ -43,7 +43,7 @@ $flights = $stmt->fetchAll();
                 <thead>
                     <tr>
                         <th>Flight Plan #</th>
-                        <th>Work Package</th>
+                        <th>Work Control</th>
                         <th>Facility</th>
                         <th>Airspace</th>
                         <th>Altitude</th>
