@@ -211,6 +211,13 @@ $pilots = $isAdmin ? $pdo->query("SELECT * FROM users WHERE is_active = 1 ORDER 
         50% { transform: scale(1.04); }
         100% { transform: scale(1); }
     }
+
+    /* Visual locking for map controls */
+    .btn-disabled-map {
+        opacity: 0.45 !important;
+        cursor: not-allowed !important;
+        pointer-events: none !important;
+    }
 </style>
 
 <?php if ($err): ?><div class="alert alert-danger"><?= htmlspecialchars($err) ?></div><?php endif; ?>
@@ -385,6 +392,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const polygonInput = document.getElementById('polygon_geojson');
     const polygonAlert = document.getElementById('polygon-alert');
     const btnDrawPolygon = document.getElementById('btn-draw-polygon');
+    const btnClearPolygon = document.getElementById('btn-clear-polygon');
+    const polygonDrawStatus = document.getElementById('polygon-draw-status');
     const dateInput = document.getElementById('flight_date');
     const flightNumInput = document.getElementById('flight_number');
 
@@ -422,7 +431,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }, 400);
     }
 
-    // Step 1 -> Step 2 validation
+    // Step 1 -> Step 2 validation & transition
     btnGotoStep2.addEventListener('click', function () {
         const step1Inputs = step1Container.querySelectorAll('input[required], select[required]');
         let isValid = true;
@@ -450,6 +459,16 @@ document.addEventListener('DOMContentLoaded', function () {
         polygonAlert.classList.remove('is-active');
         btnDrawPolygon.classList.remove('map-btn-highlight');
 
+        // Disable polygon edit controls in Step 2
+        btnDrawPolygon.disabled = true;
+        btnDrawPolygon.classList.add('btn-disabled-map');
+        btnClearPolygon.disabled = true;
+        btnClearPolygon.classList.add('btn-disabled-map');
+        if (polygonDrawStatus) {
+            polygonDrawStatus.textContent = 'Airspace boundary locked';
+            polygonDrawStatus.style.color = '#94a3b8';
+        }
+
         // Apply 50/50 layout shift
         splitContainer.classList.add('layout-balanced');
 
@@ -465,6 +484,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Step 2 -> Step 1 rollback
     btnBackToStep1.addEventListener('click', function () {
+        // Re-enable polygon edit controls when stepping back
+        btnDrawPolygon.disabled = false;
+        btnDrawPolygon.classList.remove('btn-disabled-map');
+        btnClearPolygon.disabled = false;
+        btnClearPolygon.classList.remove('btn-disabled-map');
+        if (polygonDrawStatus) {
+            polygonDrawStatus.textContent = 'Define mission airspace';
+            polygonDrawStatus.style.color = '';
+        }
+
         splitContainer.classList.remove('layout-balanced');
         step2Container.classList.add('is-hidden');
         step1Container.classList.remove('is-hidden');
