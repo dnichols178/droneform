@@ -327,7 +327,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     $html .= '                    <img src="' . $imageSrc . '" alt="Flight Area Map" width="584" style="width: 100%; max-width: 584px; height: auto; display: block; border: 0;" />' . "\r\n";
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
-        // Mission Scope
+    // Mission Scope
     $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f8fafc" style="background-color: #f8fafc; border-left: 4px solid #0284c7; border-radius: 4px; border: 1px solid #e2e8f0;">' . "\r\n";
     $html .= '                <tr><td style="padding: 14px 18px;">' . "\r\n";
@@ -340,7 +340,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">' . "\r\n";
     $rows = [
         'Target Facility'         => htmlspecialchars($flight['facility_name']),
-        'Work Control'            => htmlspecialchars($flight['work_package']),
+        'Work Package'            => htmlspecialchars($flight['work_package']),
         'Operational Window'      => htmlspecialchars($flight['flight_date']) . ' (' . htmlspecialchars($flight['start_time']) . ' - ' . htmlspecialchars($flight['end_time']) . ' Local ' . $localTzName . ')',
         'Max Operating Ceiling'   => '<strong>' . htmlspecialchars($flight['max_altitude']) . ' ft AGL</strong>',
         'Centroid Coordinates'    => htmlspecialchars($flight['latitude']) . ', ' . htmlspecialchars($flight['longitude']),
@@ -373,7 +373,7 @@ function buildFlightNotificationText(array $flight): string {
     $body .= "FAA PART 107 OFFICIAL UAS FLIGHT NOTIFICATION\r\n";
     $body .= "====================================================\r\n\r\n";
     $body .= "Flight Plan Number      : " . $flight['flight_number'] . "\r\n";
-    $body .= "Work Control            : " . $flight['work_package'] . "\r\n";
+    $body .= "Work Package            : " . $flight['work_package'] . "\r\n";
     $body .= "Target Facility         : " . $flight['facility_name'] . "\r\n";
     $body .= "Airspace Classification : Class " . $flight['airspace_class'] . "\r\n";
     $body .= "Centroid Coordinates    : " . $flight['latitude'] . ", " . $flight['longitude'] . "\r\n";
@@ -423,6 +423,7 @@ function buildPostFlightReminderText(array $flight, array $creator): string {
 
 /**
  * Pure PHP SMTP client supporting MIME multipart/related for inline CID images
+ * Transmits payloads in 8KB buffered chunks to avoid OpenSSL buffer frame limits.
  */
 function sendSmtpMail(array $to, string $subject, string $htmlBody, string $textBody = '', ?string &$errorOutput = null, array $inlineImages = []): bool {
     $host = getSystemSetting('smtp_host', '127.0.0.1');
@@ -441,7 +442,7 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
     }
 
     $socketHost = ($secure === 'ssl') ? "ssl://{$host}" : $host;
-    $timeout = 4;
+    $timeout = 10;
     $errno = 0;
     $errstr = '';
 
@@ -452,7 +453,7 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
         return false;
     }
 
-    stream_set_timeout($socket, 4);
+    stream_set_timeout($socket, 15);
 
     $transcript = [];
     $getResponse = function() use ($socket, &$transcript) {
@@ -564,7 +565,7 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
                            "Content-Transfer-Encoding: base64\r\n" .
                            "Content-ID: <{$cid}>\r\n" .
                            "Content-Disposition: inline; filename=\"{$img['filename']}\"\r\n\r\n" .
-                           $base64Data . "\r\n\r\n";
+                           $base64Data . "\r\n";
         }
         $mimeContent .= "--{$relBoundary}--\r\n";
     } else {
@@ -582,7 +583,32 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
                        "--{$altBoundary}--\r\n";
     }
 
-    fputs($socket, $headers . $mimeContent . "\r\n.\r\n");
+    // Assemble payload and write in 8KB chunks to prevent OpenSSL buffer overflows
+    $fullPayload = $headers . $mimeContent . "\r\n.\r\n";
+    $payloadLength = strlen($fullPayload);
+    $chunkSize = 8192;
+    $offset = 0;
+    $writeFailed = false;
+
+    while ($offset < $payloadLength) {
+        $chunk = substr($fullPayload, $offset, $chunkSize);
+        $written = @fwrite($socket, $chunk);
+        if ($written === false || $written === 0) {
+            $writeFailed = true;
+            break;
+        }
+        $offset += $written;
+    }
+
+    if ($writeFailed) {
+        $errorOutput = "SSL socket write error while transmitting message payload at byte {$offset} of {$payloadLength}";
+        logSystemError('SMTP', $errorOutput, implode("\n", $transcript));
+        fclose($socket);
+        return false;
+    }
+
+    @fflush($socket);
+
     $resultResp = $getResponse();
     $sendCommand("QUIT");
     fclose($socket);
