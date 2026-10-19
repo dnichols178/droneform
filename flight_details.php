@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                          laanc_auth_number = ?, 
                          laanc_status = 'APPROVED', 
                          laanc_authorized_at = ? 
-                     WHERE id = ?
+                       WHERE id = ?
                 ");
                 $stmt->execute([$code, $localNow, $flightId]);
                 header("Location: flight_details.php?id={$flightId}&msg=laanc_saved");
@@ -164,7 +164,7 @@ $flightLog = $logStmt->fetch();
 </div>
 
 <?php if ($currentStep === '3'): ?>
-    <!-- STEP 3: FULL WIDTH OUTLOOK EMAIL REVIEW (Map omitted from side since it is embedded in the email preview) -->
+    <!-- STEP 3: FULL WIDTH OUTLOOK EMAIL REVIEW -->
     <?php
     $previewFrom = "FRNP Drone Flight Operations" . " <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
     $previewTo = implode(', ', $allRecipients);
@@ -371,9 +371,12 @@ $flightLog = $logStmt->fetch();
             <!-- STAGE 4 (COMPLETE): NOTIFICATIONS SENT & MISSION ACTIVE -->
             <?php else: ?>
                 <div class="card">
-                    <div class="card-header">
-                        <h2 class="card-title">Flight Plan: <?= htmlspecialchars($flight['flight_number']) ?></h2>
-                        <div>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <h2 class="card-title" style="margin-bottom: 0;">Flight Plan: <?= htmlspecialchars($flight['flight_number']) ?></h2>
+                        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                            <a href="flight_report.php?id=<?= $flight['id'] ?>" target="_blank" class="btn btn-outline btn-sm">
+                                🖨️ Print / Generate PDF
+                            </a>
                             <?php if (!$flightLog): ?>
                                 <a href="flight_log.php?flight_id=<?= $flight['id'] ?>" class="btn btn-success btn-sm">+ Complete Post-Flight Log</a>
                             <?php else: ?>
