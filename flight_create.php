@@ -245,12 +245,12 @@ $pilots = $isAdmin ? $pdo->query("SELECT * FROM users WHERE is_active = 1 ORDER 
 
                         <div class="form-group">
                             <label for="work_package">Work Control <span style="color:var(--danger); font-weight:bold;">*</span></label>
-                            <input type="text" id="work_package" name="work_package" class="form-control" placeholder="e.g. WP-2026-Tower-Inspection" value="<?= htmlspecialchars($_POST['work_package'] ?? '') ?>" required>
+                            <input type="text" id="work_package" name="work_package" class="form-control" placeholder="e.g. EX-021" value="<?= htmlspecialchars($_POST['work_package'] ?? '') ?>" required>
                         </div>
 
                         <div class="form-group">
                             <label for="facility_name">Facility <span style="color:var(--danger); font-weight:bold;">*</span></label>
-                            <input type="text" id="facility_name" name="facility_name" class="form-control" placeholder="e.g. Barkley West Solar Array" value="<?= htmlspecialchars($_POST['facility_name'] ?? '') ?>" required>
+                            <input type="text" id="facility_name" name="facility_name" class="form-control" placeholder="e.g. C-333 Process Building" value="<?= htmlspecialchars($_POST['facility_name'] ?? '') ?>" required>
                         </div>
 
                         <div class="form-group">
