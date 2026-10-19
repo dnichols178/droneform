@@ -1,5 +1,23 @@
 <?php
 // Prevent multiple inclusions & initialize session
+
+// Define custom session parameters before session_start()
+$droneCookieParams = [
+    'lifetime' => 0,                      // Session expires when browser closes
+    'path'     => '/drone/',              // Restricts cookie transmission to /drone/ only
+    'domain'   => '',                     // Defaults to current host (comms.pad.local)
+    'secure'   => true,                   // Enforce HTTPS
+    'httponly' => true,                   // Prevent JavaScript access
+    'samesite' => 'Lax'
+];
+
+session_name('DRONE_SESSID');             // Unique session cookie name
+session_set_cookie_params($droneCookieParams);
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
