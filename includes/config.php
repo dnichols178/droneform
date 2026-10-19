@@ -18,10 +18,6 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
 // System Paths
 define('BASE_PATH', dirname(__DIR__));
 define('DATA_PATH', BASE_PATH . '/data');
