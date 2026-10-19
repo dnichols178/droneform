@@ -65,6 +65,7 @@ body {
     display: flex; justify-content: space-between; align-items: center; background-color: #f8fafc;
 }
 .card-title { font-size: 1.15rem; font-weight: 600; color: var(--text-primary); }
+.card-title #panel-title { text-align:right; font-size:1.05rem; }
 .card-body { padding: 1.5rem; }
 .grid { display: grid; gap: 1.5rem; }
 .grid-cols-4 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
