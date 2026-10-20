@@ -169,7 +169,8 @@ $flightLog = $logStmt->fetch();
     $previewFrom = "FRNP Drone Flight Operations" . " <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
     $previewTo = implode(', ', $allRecipients);
     $previewSubject = "FRNP Flight Notification " . $flight['flight_number'];
-    $previewHtml = buildFlightNotificationHtml($flight, $allRecipients);
+    // Pass 'preview_map' to render satellite imagery via Leaflet directly in the draft preview
+    $previewHtml = buildFlightNotificationHtml($flight, $allRecipients, 'preview_map');
     ?>
     <div class="card" style="border-top: 4px solid var(--success); max-width: 960px; margin: 0 auto 2rem auto;">
         <div class="card-header">
@@ -395,7 +396,7 @@ $flightLog = $logStmt->fetch();
             <!-- STAGE 4 (COMPLETE): NOTIFICATIONS SENT & MISSION ACTIVE -->
             <?php else: ?>
                 <div class="card">
-                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: gap; gap: 0.5rem;">
                         <h2 class="card-title" style="margin-bottom: 0;">Flight Plan: <?= htmlspecialchars($flight['flight_number']) ?></h2>
                         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                             <a href="flight_report.php?id=<?= $flight['id'] ?>" target="_blank" class="btn btn-outline btn-sm">
