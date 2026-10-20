@@ -40,12 +40,6 @@ function initFlightPlannerMap() {
         attribution: 'USGS The National Map'
     }).addTo(map);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        opacity: 0.35,
-        crossOrigin: 'anonymous'
-    }).addTo(map);
-
     setTimeout(() => {
         map.invalidateSize();
     }, 150);
