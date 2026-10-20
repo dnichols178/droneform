@@ -76,7 +76,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $longitude = (float)($_POST['longitude'] ?? -88.811224);
     $polygonGeoJson = trim($_POST['polygon_geojson'] ?? '');
     $operationalAcres = (float)($_POST['operational_acres'] ?? 0.0);
-    $mapImageBase64 = trim($_POST['map_image_base64'] ?? '');
+
+    // Reconstruct data URI if received without prefix
+    $rawMapBase64 = trim($_POST['map_image_base64'] ?? '');
+    if (!empty($rawMapBase64)) {
+        $mapImageBase64 = str_starts_with($rawMapBase64, 'data:') ? $rawMapBase64 : ('data:image/jpeg;base64,' . $rawMapBase64);
+    } else {
+        $mapImageBase64 = '';
+    }
 
     $droneSelect = trim($_POST['drone_select'] ?? '');
     if ($droneSelect === 'other') {
@@ -412,7 +419,7 @@ $prepopulatedDrones = $pdo->query("SELECT * FROM drones ORDER BY model_name ASC"
             <input type="hidden" name="latitude" id="latitude" value="37.115191">
             <input type="hidden" name="longitude" id="longitude" value="-88.811224">
             <input type="hidden" name="operational_acres" id="operational_acres" value="0.0">
-            <!-- Captured High-Fidelity Satellite Map Snapshot for Outlook & Step 3 -->
+            <!-- Captured satellite snapshot passed as clean base64 string -->
             <input type="hidden" name="map_image_base64" id="map_image_base64">
         </div>
     </div>
@@ -550,7 +557,6 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        // Capture live map snapshot before advancing to Step 2
         if (typeof window.generateMapSnapshot === 'function') {
             window.generateMapSnapshot();
         }
@@ -597,7 +603,6 @@ document.addEventListener('DOMContentLoaded', function () {
         notifyMapResize();
     });
 
-    // Ensure final snapshot is fresh right before submit
     document.getElementById('flight-plan-form').addEventListener('submit', function() {
         if (typeof window.generateMapSnapshot === 'function') {
             window.generateMapSnapshot();
