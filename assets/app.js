@@ -34,9 +34,10 @@ function initFlightPlannerMap() {
     window.flightMap = map;
 
     // Cross-origin enabled so client-side canvas snapshot can read imagery tiles
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 19,
-        crossOrigin: 'anonymous'
+    L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 18,
+        crossOrigin: 'anonymous',
+        attribution: 'USGS The National Map'
     }).addTo(map);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
