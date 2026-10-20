@@ -41,7 +41,7 @@ function getDB(): PDO {
 }
 
 function initSchema(PDO $pdo): void {
-    // 1. Users Table
+    // 1. Users Table (Part 107 cert number removed per Requirement 6)
     $pdo->exec("CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
@@ -49,7 +49,6 @@ function initSchema(PDO $pdo): void {
         full_name TEXT NOT NULL,
         email TEXT NOT NULL,
         phone TEXT,
-        part107_cert_num TEXT,
         role TEXT NOT NULL DEFAULT 'pilot',
         is_active INTEGER NOT NULL DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -69,7 +68,16 @@ function initSchema(PDO $pdo): void {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );");
 
-    // 3. Flights Table
+    // 3. Prepopulated Drones Table (Requirement 5)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS drones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        model_name TEXT NOT NULL,
+        faa_reg_number TEXT NOT NULL,
+        faa_reg_expiration DATE NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );");
+
+    // 4. Flights Table (Added payload, faa_reg_number, and faa_reg_expiration)
     $pdo->exec("CREATE TABLE IF NOT EXISTS flights (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         flight_number TEXT UNIQUE NOT NULL,
@@ -86,6 +94,9 @@ function initSchema(PDO $pdo): void {
         polygon_geojson TEXT,
         operational_acres REAL DEFAULT 0.0,
         aircraft_model TEXT NOT NULL,
+        payload TEXT,
+        faa_reg_number TEXT,
+        faa_reg_expiration DATE,
         airspace_class TEXT NOT NULL DEFAULT 'G',
         laanc_required INTEGER DEFAULT 0,
         laanc_status TEXT NOT NULL DEFAULT 'PENDING',
@@ -100,7 +111,7 @@ function initSchema(PDO $pdo): void {
         FOREIGN KEY (created_by) REFERENCES users(id)
     );");
 
-    // 4. Post Flight Logs
+    // 5. Post Flight Logs
     $pdo->exec("CREATE TABLE IF NOT EXISTS flight_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         flight_id INTEGER UNIQUE NOT NULL,
@@ -119,7 +130,7 @@ function initSchema(PDO $pdo): void {
         FOREIGN KEY (logged_by) REFERENCES users(id)
     );");
 
-    // 5. Notification Transmission Logs
+    // 6. Notification Transmission Logs
     $pdo->exec("CREATE TABLE IF NOT EXISTS notification_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         flight_id INTEGER NOT NULL,
@@ -130,7 +141,7 @@ function initSchema(PDO $pdo): void {
         FOREIGN KEY (flight_id) REFERENCES flights(id)
     );");
 
-    // 6. Mandatory Procedural Distribution List
+    // 7. Mandatory Procedural Distribution List
     $pdo->exec("CREATE TABLE IF NOT EXISTS distribution_recipients (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         full_name TEXT NOT NULL,
@@ -139,13 +150,13 @@ function initSchema(PDO $pdo): void {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );");
 
-    // 7. System & SMTP Settings
+    // 8. System & SMTP Settings
     $pdo->exec("CREATE TABLE IF NOT EXISTS system_settings (
         setting_key TEXT PRIMARY KEY,
         setting_value TEXT
     );");
 
-    // 8. System & Error Logs Table
+    // 9. System & Error Logs Table
     $pdo->exec("CREATE TABLE IF NOT EXISTS error_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         error_type TEXT NOT NULL DEFAULT 'GENERAL',
@@ -158,8 +169,8 @@ function initSchema(PDO $pdo): void {
 
     // Seed default admin account
     $defaultAdminPass = password_hash('Admin@107', PASSWORD_DEFAULT);
-    $pdo->prepare("INSERT OR IGNORE INTO users (username, password_hash, full_name, email, phone, part107_cert_num, role)
-                   VALUES ('admin', ?, 'Chief Remote Pilot', 'admin@uas-ops.local', '555-0107', 'FAA-4019283', 'admin')")
+    $pdo->prepare("INSERT OR IGNORE INTO users (username, password_hash, full_name, email, phone, role)
+                   VALUES ('admin', ?, 'Chief Remote Pilot', 'admin@uas-ops.local', '555-0107', 'admin')")
         ->execute([$defaultAdminPass]);
 
     // Seed default procedural recipients
@@ -186,6 +197,15 @@ function initSchema(PDO $pdo): void {
 }
 
 function migrateSchema(PDO $pdo): void {
+    // Ensure drones table exists (Requirement 5)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS drones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        model_name TEXT NOT NULL,
+        faa_reg_number TEXT NOT NULL,
+        faa_reg_expiration DATE NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );");
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS distribution_recipients (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         full_name TEXT NOT NULL,
@@ -238,6 +258,17 @@ function migrateSchema(PDO $pdo): void {
         }
         if (!in_array('reminder_sent_at', $flightCols, true)) {
             $pdo->exec("ALTER TABLE flights ADD COLUMN reminder_sent_at DATETIME");
+        }
+        // Requirement 4: Payload column
+        if (!in_array('payload', $flightCols, true)) {
+            $pdo->exec("ALTER TABLE flights ADD COLUMN payload TEXT");
+        }
+        // Requirement 5: FAA registration columns on flight records
+        if (!in_array('faa_reg_number', $flightCols, true)) {
+            $pdo->exec("ALTER TABLE flights ADD COLUMN faa_reg_number TEXT");
+        }
+        if (!in_array('faa_reg_expiration', $flightCols, true)) {
+            $pdo->exec("ALTER TABLE flights ADD COLUMN faa_reg_expiration DATE");
         }
     }
 }
