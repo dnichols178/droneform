@@ -98,37 +98,74 @@ function initFlightPlannerMap() {
     // Polygon Draw Button Toggle
     if (drawBtn) {
         drawBtn.addEventListener('click', () => {
-            isDrawing = !isDrawing;
-            if (isDrawing) {
+            if (!isDrawing) {
+                // Enter active drawing state
                 resetPolygon();
-                drawBtn.textContent = 'Finish Polygon (Double-Click Map)';
+                isDrawing = true;
+                drawBtn.textContent = 'Finish Polygon';
                 drawBtn.className = 'btn btn-success btn-sm';
-                if (statusText) statusText.textContent = 'Click to drop boundary points. Double-click map to close polygon.';
+                if (statusText) statusText.textContent = 'Click to drop boundary points. Drag points to adjust before finishing.';
             } else {
+                // User pressed Finish Polygon
                 completePolygon();
             }
         });
     }
 
     if (clearBtn) {
-        clearBtn.addEventListener('click', resetPolygon);
+        clearBtn.addEventListener('click', () => {
+            resetPolygon();
+        });
     }
 
-    // Click Map to Add Boundary Vertices
+    // Click Map to Add Boundary Vertices (ONLY permitted when isDrawing is true)
     map.on('click', (e) => {
         if (!isDrawing) return;
 
+        const currentPointIndex = polygonPoints.length;
         polygonPoints.push(e.latlng);
 
-        const marker = L.circleMarker(e.latlng, {
-            radius: 5,
-            color: '#ffffff',
-            fillColor: '#00d2ff',
-            fillOpacity: 1,
-            weight: 2
-        }).addTo(map);
-        markers.push(marker);
+        // Create draggable handle for point adjustments prior to finishing
+        const markerIcon = L.divIcon({
+            className: 'polygon-vertex-handle',
+            html: '<div style="width: 14px; height: 14px; background: #00d2ff; border: 2px solid #ffffff; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.6); cursor: grab;"></div>',
+            iconSize: [14, 14],
+            iconAnchor: [7, 7]
+        });
 
+        const marker = L.marker(e.latlng, {
+            draggable: true,
+            icon: markerIcon,
+            zIndexOffset: 1000
+        }).addTo(map);
+
+        marker.pointIndex = currentPointIndex;
+
+        // Enable live dragging of vertices before finishing polygon
+        marker.on('drag', (dragEvent) => {
+            if (!isDrawing) return;
+            const newPos = dragEvent.target.getLatLng();
+            polygonPoints[marker.pointIndex] = newPos;
+            redrawActiveShape();
+        });
+
+        marker.on('dragend', () => {
+            updateTelemetry();
+        });
+
+        markers.push(marker);
+        redrawActiveShape();
+        updateTelemetry();
+    });
+
+    // Double-Click Map to Finalize Boundary
+    map.on('dblclick', (e) => {
+        if (!isDrawing) return;
+        L.DomEvent.stop(e);
+        completePolygon();
+    });
+
+    function redrawActiveShape() {
         if (drawnPolygon) map.removeLayer(drawnPolygon);
 
         if (polygonPoints.length > 2) {
@@ -145,29 +182,24 @@ function initFlightPlannerMap() {
                 dashArray: '5, 5'
             }).addTo(map);
         }
-
-        updateTelemetry();
-    });
-
-    // Double-Click Map to Finalize Boundary
-    map.on('dblclick', (e) => {
-        if (!isDrawing) return;
-        L.DomEvent.stop(e);
-        completePolygon();
-    });
+    }
 
     function completePolygon() {
         if (polygonPoints.length < 3) {
-            alert('A flight polygon requires at least 3 points to enclose airspace');
+            alert('A flight polygon requires at least 3 points to enclose airspace.');
             return;
         }
 
         isDrawing = false;
         if (drawBtn) {
-            drawBtn.textContent = 'Redraw Polygon';
+            drawBtn.textContent = '⬟ Redraw Polygon';
             drawBtn.className = 'btn btn-aloft btn-sm';
         }
         if (statusText) statusText.textContent = 'Flight boundary established';
+
+        // Remove vertex drag markers now that polygon is finalized
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
 
         if (drawnPolygon) map.removeLayer(drawnPolygon);
 
@@ -182,6 +214,7 @@ function initFlightPlannerMap() {
     }
 
     function resetPolygon() {
+        isDrawing = false;
         polygonPoints = [];
         markers.forEach(m => map.removeLayer(m));
         markers = [];
@@ -437,7 +470,6 @@ function initUserEditModal() {
     const passInput = document.getElementById('edit_password');
     const emailInput = document.getElementById('edit_email');
     const phoneInput = document.getElementById('edit_phone');
-    const certInput = document.getElementById('edit_part107_cert_num');
     const roleInput = document.getElementById('edit_role');
 
     // Attach click listeners to all Edit buttons safely
@@ -447,7 +479,6 @@ function initUserEditModal() {
             if (nameInput) nameInput.value = btn.dataset.fullname || '';
             if (emailInput) emailInput.value = btn.dataset.email || '';
             if (phoneInput) phoneInput.value = btn.dataset.phone || '';
-            if (certInput) certInput.value = btn.dataset.cert || '';
             if (roleInput) roleInput.value = btn.dataset.role || 'pilot';
             if (passInput) passInput.value = ''; // Always clear password on open
 
