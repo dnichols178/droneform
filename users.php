@@ -49,13 +49,12 @@ function generateUsername(string $fullName, PDO $pdo, int $excludeId = 0): strin
     return $username;
 }
 
-// Handle Create User
+// Handle Create User (Part 107 removed per Requirement 6)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_user') {
     $fullName = trim($_POST['full_name'] ?? '');
     $password = $_POST['password'] ?? '';
     $email = trim($_POST['email'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
-    $certNum = trim($_POST['part107_cert_num'] ?? '');
     $role = $_POST['role'] ?? 'pilot';
 
     if ($fullName && $password && $email) {
@@ -64,8 +63,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $hash = password_hash($password, PASSWORD_DEFAULT);
 
         try {
-            $stmt = $pdo->prepare("INSERT INTO users (username, password_hash, full_name, email, phone, part107_cert_num, role) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$username, $hash, $fullName, $email, $phone, $certNum, $role]);
+            $stmt = $pdo->prepare("INSERT INTO users (username, password_hash, full_name, email, phone, role) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$username, $hash, $fullName, $email, $phone, $role]);
             $msg = "User account created successfully for {$fullName} (Username: <code>{$username}</code>).";
         } catch (PDOException $e) {
             $err = 'Error creating user: ' . $e->getMessage();
@@ -75,14 +74,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Handle Update User (via Modal)
+// Handle Update User via Modal (Part 107 removed per Requirement 6)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_user') {
     $userId = (int)($_POST['user_id'] ?? 0);
     $fullName = trim($_POST['full_name'] ?? '');
     $password = $_POST['password'] ?? '';
     $email = trim($_POST['email'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
-    $certNum = trim($_POST['part107_cert_num'] ?? '');
     $role = $_POST['role'] ?? 'pilot';
 
     if ($userId && $fullName && $email) {
@@ -92,11 +90,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         try {
             if (!empty($password)) {
                 $hash = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare("UPDATE users SET username = ?, password_hash = ?, full_name = ?, email = ?, phone = ?, part107_cert_num = ?, role = ? WHERE id = ?");
-                $stmt->execute([$username, $hash, $fullName, $email, $phone, $certNum, $role, $userId]);
+                $stmt = $pdo->prepare("UPDATE users SET username = ?, password_hash = ?, full_name = ?, email = ?, phone = ?, role = ? WHERE id = ?");
+                $stmt->execute([$username, $hash, $fullName, $email, $phone, $role, $userId]);
             } else {
-                $stmt = $pdo->prepare("UPDATE users SET username = ?, full_name = ?, email = ?, phone = ?, part107_cert_num = ?, role = ? WHERE id = ?");
-                $stmt->execute([$username, $fullName, $email, $phone, $certNum, $role, $userId]);
+                $stmt = $pdo->prepare("UPDATE users SET username = ?, full_name = ?, email = ?, phone = ?, role = ? WHERE id = ?");
+                $stmt->execute([$username, $fullName, $email, $phone, $role, $userId]);
             }
             $msg = "User account updated successfully for {$fullName} (Username: <code>{$username}</code>).";
         } catch (PDOException $e) {
@@ -162,7 +160,7 @@ $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll()
                                name="email" 
                                id="email" 
                                class="form-control" 
-                               placeholder="user@example.com"
+                               placeholder="user@example.com" 
                                required>
                     </div>
 
@@ -173,15 +171,6 @@ $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll()
                                id="phone" 
                                class="form-control" 
                                placeholder="555-0100">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="part107_cert_num">Part 107 Certificate #</label>
-                        <input type="text" 
-                               name="part107_cert_num" 
-                               id="part107_cert_num" 
-                               class="form-control" 
-                               placeholder="FAA-4928172">
                     </div>
 
                     <div class="form-group">
@@ -215,7 +204,6 @@ $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll()
                                 <th>Operator Name</th>
                                 <th>Assigned Username</th>
                                 <th>Role</th>
-                                <th>Part 107 #</th>
                                 <th>Contact</th>
                                 <th>Status</th>
                                 <th>Actions</th>
@@ -231,7 +219,6 @@ $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll()
                                             <?= strtoupper($u['role']) ?>
                                         </span>
                                     </td>
-                                    <td><?= htmlspecialchars($u['part107_cert_num'] ?: 'None') ?></td>
                                     <td>
                                         <small><?= htmlspecialchars($u['email']) ?></small><br>
                                         <small style="color:var(--text-muted);"><?= htmlspecialchars($u['phone'] ?: 'No phone') ?></small>
@@ -249,7 +236,6 @@ $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll()
                                                     data-fullname="<?= htmlspecialchars($u['full_name'], ENT_QUOTES) ?>"
                                                     data-email="<?= htmlspecialchars($u['email'], ENT_QUOTES) ?>"
                                                     data-phone="<?= htmlspecialchars($u['phone'] ?? '', ENT_QUOTES) ?>"
-                                                    data-cert="<?= htmlspecialchars($u['part107_cert_num'] ?? '', ENT_QUOTES) ?>"
                                                     data-role="<?= htmlspecialchars($u['role'], ENT_QUOTES) ?>">
                                                 Edit
                                             </button>
@@ -303,7 +289,7 @@ $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll()
                     <input type="password" name="password" id="edit_password" class="form-control" placeholder="••••••••">
                 </div>
 
-                <div class="grid grid-cols-2">
+                <div class="grid grid-cols-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                     <div class="form-group">
                         <label for="edit_email">Email Address</label>
                         <input type="email" name="email" id="edit_email" class="form-control" required>
@@ -312,11 +298,6 @@ $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll()
                         <label for="edit_phone">Phone Number</label>
                         <input type="text" name="phone" id="edit_phone" class="form-control">
                     </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="edit_part107_cert_num">Part 107 Certificate #</label>
-                    <input type="text" name="part107_cert_num" id="edit_part107_cert_num" class="form-control">
                 </div>
             </div>
             <div class="modal-footer">
