@@ -10,8 +10,9 @@ if (!$flightId) {
     die("Flight ID is missing.");
 }
 
+// Removed u.part107_cert_num per Requirement 6
 $stmt = $pdo->prepare("
-    SELECT f.*, u.full_name AS pilot_name, u.part107_cert_num, u.phone AS pilot_phone, u.email AS pilot_email
+    SELECT f.*, u.full_name AS pilot_name, u.phone AS pilot_phone, u.email AS pilot_email
     FROM flights f
     JOIN users u ON f.pilot_id = u.id
     WHERE f.id = ?
@@ -183,16 +184,22 @@ $localTz = date('T');
                 <td><?= htmlspecialchars($flight['aircraft_model']) ?></td>
             </tr>
             <tr>
-                <th>Remote PIC</th>
-                <td><?= htmlspecialchars($flight['pilot_name']) ?></td>
-                <th>Part 107 Certificate</th>
-                <td><?= htmlspecialchars($flight['part107_cert_num'] ?: 'ON FILE') ?></td>
+                <th>FAA Drone Reg #</th>
+                <td><?= htmlspecialchars($flight['faa_reg_number'] ?: 'ON FILE') ?><?= !empty($flight['faa_reg_expiration']) ? ' <small style="color:#64748b;">(Exp: ' . htmlspecialchars($flight['faa_reg_expiration']) . ')</small>' : '' ?></td>
+                <th>Payload</th>
+                <td><?= htmlspecialchars($flight['payload'] ?: 'None (Standard Optical)') ?></td>
             </tr>
             <tr>
+                <th>Remote PIC</th>
+                <td><?= htmlspecialchars($flight['pilot_name']) ?></td>
                 <th>PIC Phone</th>
                 <td><?= htmlspecialchars($flight['pilot_phone'] ?: 'N/A') ?></td>
+            </tr>
+            <tr>
                 <th>PIC Email</th>
                 <td><?= htmlspecialchars($flight['pilot_email'] ?: 'N/A') ?></td>
+                <th>LAANC Clearance</th>
+                <td><?= htmlspecialchars($flight['laanc_auth_number'] ?: 'NOT REQUIRED (CLASS G)') ?></td>
             </tr>
         </table>
 
@@ -204,7 +211,7 @@ $localTz = date('T');
         <?php endif; ?>
 
         <div class="footer-note">
-            <span>FRNP Drone Flight Management System &bull; FAA Part 107 Compliance Document</span>
+            <span>FRNP Drone Flight Management System &bull; Flight Compliance Document</span>
             <span>Flight ID: <?= $flight['id'] ?></span>
         </div>
     </div>
