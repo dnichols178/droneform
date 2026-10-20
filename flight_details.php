@@ -282,7 +282,7 @@ $flightLog = $logStmt->fetch();
                     <div class="card-body">
                         <table class="table">
                             <tr><th>Flight Plan #</th><td><strong><?= htmlspecialchars($flight['flight_number']) ?></strong></td></tr>
-                            <tr><th>Work Package</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
+                            <tr><th>Work Control</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
                             <tr><th>Target Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
                             <tr><th>Mission Scope</th><td><?= htmlspecialchars($flight['mission_purpose']) ?></td></tr>
                             <?php if (!empty($flight['aircraft_model'])): ?>
@@ -321,7 +321,7 @@ $flightLog = $logStmt->fetch();
                                 <td><strong><?= htmlspecialchars($flight['flight_number']) ?></strong></td>
                             </tr>
                             <tr>
-                                <th>Work Package</th>
+                                <th>Work Control</th>
                                 <td><?= htmlspecialchars($flight['work_package']) ?></td>
                             </tr>
                             <tr>
@@ -359,10 +359,6 @@ $flightLog = $logStmt->fetch();
                             <tr>
                                 <th>Centroid Coordinates</th>
                                 <td><?= $flight['latitude'] ?>, <?= $flight['longitude'] ?></td>
-                            </tr>
-                            <tr>
-                                <th>Operational Area</th>
-                                <td><?= $flight['operational_acres'] ?> Acres</td>
                             </tr>
                             <tr>
                                 <th>Max Altitude</th>
@@ -420,8 +416,8 @@ $flightLog = $logStmt->fetch();
                     </div>
                     <div class="card-body">
                         <table class="table" style="margin-bottom: 1.5rem;">
-                            <tr><th>Work Package</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
-                            <tr><th>Target Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
+                            <tr><th>Work Control</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
+                            <tr><th>Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
                             <tr><th>Mission Scope</th><td><strong style="color: var(--primary-dark);"><?= nl2br(htmlspecialchars($flight['mission_purpose'])) ?></strong></td></tr>
                             <tr><th>Aircraft Model</th><td><?= htmlspecialchars($flight['aircraft_model']) ?></td></tr>
                             <?php if (!empty($flight['faa_reg_number'])): ?>
@@ -437,7 +433,6 @@ $flightLog = $logStmt->fetch();
                             <tr><th>LAANC Authorization #</th><td><strong style="color: var(--success); font-family: monospace;"><?= htmlspecialchars($flight['laanc_auth_number'] ?: 'NOT REQUIRED') ?></strong></td></tr>
                             <tr><th>Centroid</th><td><?= $flight['latitude'] ?>, <?= $flight['longitude'] ?></td></tr>
                             <tr><th>Max Altitude</th><td><strong><?= $flight['max_altitude'] ?> ft AGL</strong></td></tr>
-                            <tr><th>Operational Area</th><td><?= $flight['operational_acres'] ?> Acres</td></tr>
                             <tr><th>Schedule Window</th><td><?= $flight['flight_date'] ?> (<?= $flight['start_time'] ?> - <?= $flight['end_time'] ?> Local)</td></tr>
                             <tr><th>Remote PIC</th><td><?= htmlspecialchars($flight['pilot_name']) ?></td></tr>
                         </table>
