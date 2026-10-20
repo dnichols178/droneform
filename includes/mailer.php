@@ -57,14 +57,14 @@ function fetchSingleTile(string $url): string {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
-            CURLOPT_CONNECTTIMEOUT => 3,
-            CURLOPT_TIMEOUT        => 4,
+            CURLOPT_CONNECTTIMEOUT => 2,
+            CURLOPT_TIMEOUT        => 3,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => 0,
             CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
             CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             CURLOPT_HTTPHEADER     => [
-                'Accept: image/jpeg,image/png,image/*;q=0.8'
+                'Accept: image/jpeg,image/png,image/webp,*/*;q=0.8'
             ]
         ];
 
@@ -86,7 +86,7 @@ function fetchSingleTile(string $url): string {
     if (ini_get('allow_url_fopen')) {
         $ctx = stream_context_create([
             'http' => [
-                'timeout' => 4,
+                'timeout' => 3,
                 'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
             ],
             'ssl' => [
@@ -107,6 +107,17 @@ function fetchSingleTile(string $url): string {
  * Generates raw PNG binary of 90° top-down nadir satellite imagery stitched with flight boundary & telemetry
  */
 function generateFlightAreaImageBinary(array $flight): string {
+    // If a valid client-captured base64 snapshot exists in DB, decode it directly
+    if (!empty($flight['map_image_base64'])) {
+        $clean = preg_replace('#^data:image/[^;]+;base64,#i', '', trim($flight['map_image_base64']));
+        if (strlen($clean) > 200) {
+            $decoded = base64_decode($clean);
+            if (!empty($decoded) && strlen($decoded) > 500) {
+                return $decoded;
+            }
+        }
+    }
+
     if (!function_exists('imagecreatetruecolor')) {
         return '';
     }
@@ -138,9 +149,8 @@ function generateFlightAreaImageBinary(array $flight): string {
     $centerLat = ($minLat + $maxLat) / 2.0;
     $centerLng = ($minLng + $maxLng) / 2.0;
 
-    // Calculate optimal zoom level based on bounding box
     $optimalZoom = 15;
-    for ($z = 18; $z >= 13; $z--) {
+    for ($z = 17; $z >= 13; $z--) {
         $wPx = abs(mercatorLon2X($maxLng, $z) - mercatorLon2X($minLng, $z));
         $hPx = abs(mercatorLat2Y($maxLat, $z) - mercatorLat2Y($minLat, $z));
         if ($wPx <= ($width * 0.65) && $hPx <= ($height * 0.65)) {
@@ -148,7 +158,7 @@ function generateFlightAreaImageBinary(array $flight): string {
             break;
         }
     }
-    $optimalZoom = min(18, max(13, $optimalZoom));
+    $optimalZoom = min(17, max(13, $optimalZoom));
 
     $img = imagecreatetruecolor($width, $height);
     imagealphablending($img, true);
@@ -185,16 +195,17 @@ function generateFlightAreaImageBinary(array $flight): string {
 
     for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
         for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
-            $cacheFile = $cacheDir . "/tile_topdown_{$optimalZoom}_{$ty}_{$tx}.jpg";
+            $cacheFile = $cacheDir . "/topdown_{$optimalZoom}_{$ty}_{$tx}.jpg";
             $tileRaw = '';
 
             if (file_exists($cacheFile) && filesize($cacheFile) > 500) {
                 $tileRaw = file_get_contents($cacheFile);
             } else {
-                // Top-down 90° nadir satellite imagery (supports zoom 0-20 without 404s)
+                // Primary: 90° top-down nadir satellite tiles (Google Satellite layer, zoom 0-20)
                 $tileUrl = "https://mt1.google.com/vt/lyrs=s&x={$tx}&y={$ty}&z={$optimalZoom}";
                 $tileRaw = fetchSingleTile($tileUrl);
 
+                // Secondary fallback: Esri World Imagery
                 if (empty($tileRaw)) {
                     $tileUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
                     $tileRaw = fetchSingleTile($tileUrl);
@@ -243,6 +254,7 @@ function generateFlightAreaImageBinary(array $flight): string {
         }
     }
 
+    // Fallback tactical grid background if network tiles are unreachable
     if ($loadedSatCount === 0) {
         imagefilledrectangle($img, 0, 0, $width, $height, $bgDark);
         for ($x = 0; $x < $width; $x += 35) {
@@ -315,16 +327,93 @@ function generateFlightAreaImageBinary(array $flight): string {
     return $binary;
 }
 
+/**
+ * Fallback standalone SVG generator ensuring images always render even on completely offline servers
+ */
+function generateFlightAreaSvgRaw(array $flight): string {
+    $width = 584;
+    $height = 320;
+
+    $lat = (float)($flight['latitude'] ?? 37.115191);
+    $lng = (float)($flight['longitude'] ?? -88.811224);
+    $acres = htmlspecialchars((string)($flight['operational_acres'] ?? '0.00'));
+    $alt = htmlspecialchars((string)($flight['max_altitude'] ?? '200'));
+    $airspaceClass = htmlspecialchars((string)($flight['airspace_class'] ?? 'G'));
+
+    $pointsSvg = '';
+    $rawCoords = [];
+    if (!empty($flight['polygon_geojson'])) {
+        $geo = @json_decode($flight['polygon_geojson'], true);
+        if (!empty($geo['coordinates'][0]) && is_array($geo['coordinates'][0])) {
+            $rawCoords = $geo['coordinates'][0];
+        }
+    }
+
+    if (!empty($rawCoords)) {
+        $lats = array_column($rawCoords, 1);
+        $lngs = array_column($rawCoords, 0);
+        $minLat = min($lats);
+        $maxLat = max($lats);
+        $minLng = min($lngs);
+        $maxLng = max($lngs);
+
+        $spanLat = max(0.0001, $maxLat - $minLat);
+        $spanLng = max(0.0001, $maxLng - $minLng);
+
+        $svgCoords = [];
+        foreach ($rawCoords as $c) {
+            $px = 60 + (($c[0] - $minLng) / $spanLng) * ($width - 120);
+            $py = ($height - 60) - (($c[1] - $minLat) / $spanLat) * ($height - 120);
+            $svgCoords[] = round($px, 1) . ',' . round($py, 1);
+        }
+        $pointsSvg = implode(' ', $svgCoords);
+    }
+
+    $cx = round($width / 2, 1);
+    $cy = round($height / 2, 1);
+
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' . $width . ' ' . $height . '" width="' . $width . '" height="' . $height . '" style="background:#0f172a; font-family:sans-serif;">' .
+           '<defs><pattern id="grid" width="35" height="35" patternUnits="userSpaceOnUse"><path d="M 35 0 L 0 0 0 35" fill="none" stroke="#1e293b" stroke-width="1"/></pattern></defs>' .
+           '<rect width="' . $width . '" height="' . $height . '" fill="#0f172a"/>' .
+           '<rect width="' . $width . '" height="' . $height . '" fill="url(#grid)"/>' .
+           (!empty($pointsSvg) ? '<polygon points="' . $pointsSvg . '" fill="rgba(0, 210, 255, 0.25)" stroke="#00d2ff" stroke-width="3" stroke-linejoin="round"/>' : '') .
+           '<circle cx="' . $cx . '" cy="' . $cy . '" r="9" stroke="#00d2ff" stroke-width="2" fill="none"/>' .
+           '<line x1="' . ($cx - 13) . '" y1="' . $cy . '" x2="' . ($cx + 13) . '" y2="' . $cy . '" stroke="#00d2ff" stroke-width="2"/>' .
+           '<line x1="' . $cx . '" y1="' . ($cy - 13) . '" x2="' . $cx . '" y2="' . ($cy + 13) . '" stroke="#00d2ff" stroke-width="2"/>' .
+           '<circle cx="' . $cx . '" cy="' . $cy . '" r="2.5" fill="#ffffff"/>' .
+           '<rect x="10" y="10" width="310" height="42" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
+           '<text x="20" y="27" fill="#00d2ff" font-size="12" font-weight="bold">FLIGHT AREA BOUNDARY MAP</text>' .
+           '<text x="20" y="43" fill="#f8fafc" font-size="10">Footprint: ' . $acres . ' Ac | Ceiling: ' . $alt . ' ft AGL</text>' .
+           '<rect x="' . ($width - 44) . '" y="10" width="34" height="42" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
+           '<text x="' . ($width - 32) . '" y="27" fill="#ffffff" font-size="12" font-weight="bold">N</text>' .
+           '<line x1="' . ($width - 27) . '" y1="' . 31 . '" x2="' . ($width - 27) . '" y2="42" stroke="#00d2ff" stroke-width="2"/>' .
+           '<rect x="10" y="' . ($height - 34) . '" width="' . ($width - 20) . '" height="26" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
+           '<text x="20" y="' . ($height - 17) . '" fill="#f8fafc" font-size="10">Centroid: ' . round($lat, 6) . ', ' . round($lng, 6) . '</text>' .
+           '<text x="' . ($width - 140) . '" y="' . ($height - 17) . '" fill="' . ($airspaceClass === 'G' ? '#22c55e' : '#f59e0b') . '" font-size="10" font-weight="bold">Airspace: Class ' . $airspaceClass . '</text>' .
+           '</svg>';
+}
+
 function generateFlightAreaImageBase64(array $flight): string {
+    // 1. If valid captured snapshot is stored in DB (must be > 200 chars to avoid broken empty headers)
+    if (!empty($flight['map_image_base64'])) {
+        $clean = preg_replace('#^data:image/[^;]+;base64,#i', '', trim($flight['map_image_base64']));
+        if (strlen($clean) > 200) {
+            return 'data:image/jpeg;base64,' . $clean;
+        }
+    }
+
+    // 2. Generate stitched PNG using top-down nadir tiles
     $binary = generateFlightAreaImageBinary($flight);
-    if (!empty($binary)) {
+    if (!empty($binary) && strlen($binary) > 200) {
         return 'data:image/png;base64,' . base64_encode($binary);
     }
-    return '';
+
+    // 3. Fallback guaranteed vector SVG
+    return 'data:image/svg+xml;base64,' . base64_encode(generateFlightAreaSvgRaw($flight));
 }
 
 function buildFlightNotificationHtml(array $flight, array $recipients, ?string $imageSrc = null): string {
-    if ($imageSrc === null || empty($imageSrc)) {
+    if (empty($imageSrc)) {
         $imageSrc = generateFlightAreaImageBase64($flight);
     }
 
@@ -364,7 +453,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     }
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
-    // Embedded Flight Map
+    // Embedded Top-Down Satellite Map
     $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0f172a" style="background-color: #0f172a; border-radius: 6px; overflow: hidden; border: 1px solid #334155;">' . "\r\n";
     $html .= '                <tr><td align="center" style="padding: 0; background-color: #090d16;">' . "\r\n";
@@ -457,7 +546,7 @@ function buildFlightNotificationText(array $flight): string {
 }
 
 function buildPostFlightReminderHtml(array $flight, array $creator, ?string $imageSrc = null): string {
-    if ($imageSrc === null || empty($imageSrc)) {
+    if (empty($imageSrc)) {
         $imageSrc = generateFlightAreaImageBase64($flight);
     }
 
