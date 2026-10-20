@@ -8,23 +8,6 @@ $pdo = getDB();
 $currentUser = getCurrentUser();
 $isAdmin = ($currentUser && strtolower(trim($currentUser['role'])) === 'admin');
 
-// Ensure drones table exists for prepopulated aircraft
-$pdo->exec("
-    CREATE TABLE IF NOT EXISTS drones (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        model_name TEXT NOT NULL,
-        faa_reg_number TEXT NOT NULL,
-        faa_reg_expiration DATE NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-");
-
-/**
- * Returns the 2-digit Fiscal Year (FY) for a given date.
- * Fiscal year begins on October 1st:
- * - Oct 1, 2026 to Sep 30, 2027 -> FY27 (prefix FP-27-)
- * - Oct 1, 2027 to Sep 30, 2028 -> FY28 (prefix FP-28-)
- */
 function getFiscalYearTwoDigit(?string $dateStr = null): string {
     $ts = !empty($dateStr) ? strtotime($dateStr) : time();
     if (!$ts) {
@@ -36,9 +19,6 @@ function getFiscalYearTwoDigit(?string $dateStr = null): string {
     return substr((string)$fiscalYear, -2);
 }
 
-/**
- * Generates the next sequential flight plan number for a specific flight date's fiscal year.
- */
 function generateNextFlightNumber(PDO $pdo, ?string $flightDate = null): string {
     $twoDigitFY = getFiscalYearTwoDigit($flightDate);
     $yearPrefix = "FP-" . $twoDigitFY . "-";
@@ -59,7 +39,6 @@ function generateNextFlightNumber(PDO $pdo, ?string $flightDate = null): string 
     }
 }
 
-// AJAX endpoint to dynamically update flight plan number if flight date is changed on the client
 if (isset($_GET['action']) && $_GET['action'] === 'get_flight_number') {
     header('Content-Type: application/json');
     $date = $_GET['flight_date'] ?? date('Y-m-d');
@@ -79,7 +58,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $workPackage = trim($_POST['work_package'] ?? '');
     $facilityName = trim($_POST['facility_name'] ?? '');
     
-    // RPIC Security Enforcement: Only administrators can select a different pilot
     if ($isAdmin) {
         $pilotId = (int)($_POST['pilot_id'] ?? $currentUser['id']);
     } else {
@@ -88,8 +66,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $createdBy = (int)$currentUser['id'];
     $flightDate = $_POST['flight_date'] ?? date('Y-m-d');
-    
-    // Enforce fiscal year flight numbering strictly based on the submitted flight date
     $flightNumber = generateNextFlightNumber($pdo, $flightDate);
 
     $startTime = $_POST['start_time'] ?? '';
@@ -100,8 +76,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $longitude = (float)($_POST['longitude'] ?? -88.811224);
     $polygonGeoJson = trim($_POST['polygon_geojson'] ?? '');
     $operationalAcres = (float)($_POST['operational_acres'] ?? 0.0);
-    
-    // Aircraft selection & custom "Other" capture
+    $mapImageBase64 = trim($_POST['map_image_base64'] ?? '');
+
     $droneSelect = trim($_POST['drone_select'] ?? '');
     if ($droneSelect === 'other') {
         $aircraftModel = trim($_POST['custom_drone_model'] ?? '');
@@ -117,7 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $missionPurpose = trim($_POST['mission_purpose'] ?? '');
     $additionalEmails = trim($_POST['additional_emails'] ?? '');
 
-    // Mission Scope & Geometry Validation
     if (empty($workPackage) || empty($facilityName) || empty($missionPurpose) || empty($aircraftModel)) {
         $err = "Work package, target facility, aircraft model, and mission scope are required fields.";
     } elseif (empty($polygonGeoJson)) {
@@ -128,36 +103,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $laancRequired = ($airspaceClass !== 'G') ? 1 : 0;
         $laancStatus = $laancRequired ? 'PENDING' : 'NOT_REQUIRED';
 
-        // Ensure columns exist in flights table
-        try {
-            $cols = $pdo->query("PRAGMA table_info(flights)")->fetchAll(PDO::FETCH_COLUMN, 1);
-            if (!in_array('payload', $cols)) {
-                $pdo->exec("ALTER TABLE flights ADD COLUMN payload TEXT DEFAULT ''");
-            }
-            if (!in_array('faa_reg_number', $cols)) {
-                $pdo->exec("ALTER TABLE flights ADD COLUMN faa_reg_number TEXT DEFAULT ''");
-            }
-            if (!in_array('faa_reg_expiration', $cols)) {
-                $pdo->exec("ALTER TABLE flights ADD COLUMN faa_reg_expiration DATE");
-            }
-        } catch (PDOException $e) {
-            // Table structure verified
-        }
-
         try {
             $stmt = $pdo->prepare("
                 INSERT INTO flights (
                     flight_number, pilot_id, work_package, facility_name, flight_date,
                     start_time, end_time, max_altitude, latitude, longitude, polygon_geojson,
                     operational_acres, aircraft_model, payload, faa_reg_number, faa_reg_expiration,
-                    airspace_class, laanc_required, laanc_status, additional_emails, mission_purpose, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    map_image_base64, airspace_class, laanc_required, laanc_status, additional_emails, mission_purpose, created_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $flightNumber, $pilotId, $workPackage, $facilityName, $flightDate,
                 $startTime, $endTime, $maxAltitude, $latitude, $longitude, $polygonGeoJson,
                 $operationalAcres, $aircraftModel, $payload, $faaRegNumber, $faaRegExp,
-                $airspaceClass, $laancRequired, $laancStatus, $additionalEmails, $missionPurpose, $createdBy
+                $mapImageBase64, $airspaceClass, $laancRequired, $laancStatus, $additionalEmails, $missionPurpose, $createdBy
             ]);
 
             $newFlightId = (int)$pdo->lastInsertId();
@@ -169,10 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch pilots without part107_cert_num display
 $pilots = $isAdmin ? $pdo->query("SELECT id, full_name FROM users WHERE is_active = 1 ORDER BY full_name ASC")->fetchAll() : [];
-
-// Fetch prepopulated fleet from settings
 $prepopulatedDrones = $pdo->query("SELECT * FROM drones ORDER BY model_name ASC")->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
@@ -273,7 +229,6 @@ $prepopulatedDrones = $pdo->query("SELECT * FROM drones ORDER BY model_name ASC"
 
 <form id="flight-plan-form" method="POST" action="flight_create.php">
     <div id="planner-split-container" class="flight-planner-split">
-        <!-- LEFT COLUMN: FLIGHT PARAMETERS -->
         <div class="flight-planner-left">
             <div class="card">
                 <div class="card-header">
@@ -342,7 +297,6 @@ $prepopulatedDrones = $pdo->query("SELECT * FROM drones ORDER BY model_name ASC"
 
                     <!-- ================= STEP 2: FLIGHT DETAILS ================= -->
                     <div id="step-2-container" class="step-section is-hidden">
-                        <!-- Prepopulated Drone Aircraft Selector & "Other" Option -->
                         <div class="form-group">
                             <label for="drone_select">UAS Aircraft Model <span style="color:var(--danger); font-weight:bold;">*</span></label>
                             <select id="drone_select" name="drone_select" class="form-control" required>
@@ -359,12 +313,10 @@ $prepopulatedDrones = $pdo->query("SELECT * FROM drones ORDER BY model_name ASC"
                             </select>
                         </div>
 
-                        <!-- Hidden fields to retain selected prepopulated drone specs -->
                         <input type="hidden" id="aircraft_model" name="aircraft_model" value="<?= htmlspecialchars($_POST['aircraft_model'] ?? '') ?>">
                         <input type="hidden" id="faa_reg_number" name="faa_reg_number" value="<?= htmlspecialchars($_POST['faa_reg_number'] ?? '') ?>">
                         <input type="hidden" id="faa_reg_expiration" name="faa_reg_expiration" value="<?= htmlspecialchars($_POST['faa_reg_expiration'] ?? '') ?>">
 
-                        <!-- Dynamic Manual Entry for "Other" Aircraft -->
                         <div id="other-drone-fields" style="display: none; background: #f8fafc; border: 1px solid var(--border-light); border-radius: 6px; padding: 1rem; margin-bottom: 1rem;">
                             <div class="form-group">
                                 <label for="custom_drone_model">Drone Model Name <span style="color:var(--danger); font-weight:bold;">*</span></label>
@@ -382,20 +334,17 @@ $prepopulatedDrones = $pdo->query("SELECT * FROM drones ORDER BY model_name ASC"
                             </div>
                         </div>
 
-                        <!-- Step 2: Payload Field (Requirement 4) -->
                         <div class="form-group">
                             <label for="payload">Payload</label>
                             <input type="text" id="payload" name="payload" class="form-control" placeholder="e.g. Thermal XT2 Camera, LiDAR sensor, standard optical gimbal..." value="<?= htmlspecialchars($_POST['payload'] ?? '') ?>">
                             <div class="form-hint">Specify any onboard payload, cameras, sensors, or specialized equipment.</div>
                         </div>
 
-                        <!-- Max Altitude -->
                         <div class="form-group">
                             <label for="max_altitude">Planned Max Altitude (ft AGL) <span style="color:var(--danger); font-weight:bold;">*</span></label>
                             <input type="number" id="max_altitude" name="max_altitude" class="form-control" value="<?= htmlspecialchars($_POST['max_altitude'] ?? '200') ?>" min="10" max="400" required>
                         </div>
 
-                        <!-- Date, Start Time, and End Time aligned -->
                         <div class="grid-cols-3">
                             <div class="form-group">
                                 <label for="flight_date">Flight Date <span style="color:var(--danger); font-weight:bold;">*</span></label>
@@ -411,14 +360,12 @@ $prepopulatedDrones = $pdo->query("SELECT * FROM drones ORDER BY model_name ASC"
                             </div>
                         </div>
 
-                        <!-- Mission Scope -->
                         <div class="form-group">
                             <label for="mission_purpose">Mission Scope <span style="color:var(--danger); font-weight:bold;">*</span></label>
                             <textarea id="mission_purpose" name="mission_purpose" class="form-control" rows="3" placeholder="Describe operational mission objectives, flight profile, visual observer setup, safety perimeter..." required><?= htmlspecialchars($_POST['mission_purpose'] ?? '') ?></textarea>
                             <div class="form-hint">Required for FAA Part 107 operational safety and site compliance.</div>
                         </div>
 
-                        <!-- Notifications -->
                         <div class="form-group">
                             <label for="additional_emails">Additional Notification Emails (Optional)</label>
                             <input type="text" id="additional_emails" name="additional_emails" class="form-control" placeholder="manager@site.com, escort@security.org" value="<?= htmlspecialchars($_POST['additional_emails'] ?? '') ?>">
@@ -438,7 +385,6 @@ $prepopulatedDrones = $pdo->query("SELECT * FROM drones ORDER BY model_name ASC"
             </div>
         </div>
 
-        <!-- RIGHT COLUMN: ALOFT-STYLE POLYGON MAP -->
         <div class="flight-planner-right">
             <div class="map-cockpit" style="background: #0f172a; border-radius: 8px; overflow: hidden;">
                 <div class="map-toolbar">
@@ -466,6 +412,8 @@ $prepopulatedDrones = $pdo->query("SELECT * FROM drones ORDER BY model_name ASC"
             <input type="hidden" name="latitude" id="latitude" value="37.115191">
             <input type="hidden" name="longitude" id="longitude" value="-88.811224">
             <input type="hidden" name="operational_acres" id="operational_acres" value="0.0">
+            <!-- Captured High-Fidelity Satellite Map Snapshot for Outlook & Step 3 -->
+            <input type="hidden" name="map_image_base64" id="map_image_base64">
         </div>
     </div>
 </form>
@@ -487,7 +435,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const dateInput = document.getElementById('flight_date');
     const flightNumInput = document.getElementById('flight_number');
 
-    // Drone selector elements
     const droneSelect = document.getElementById('drone_select');
     const otherFields = document.getElementById('other-drone-fields');
     const aircraftModelInput = document.getElementById('aircraft_model');
@@ -547,7 +494,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Live Fiscal Year Flight Plan Number update on date change
     if (dateInput && flightNumInput) {
         dateInput.addEventListener('change', function () {
             const selectedDate = this.value;
@@ -581,7 +527,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }, 400);
     }
 
-    // Step 1 -> Step 2 validation & transition
     btnGotoStep2.addEventListener('click', function () {
         const step1Inputs = step1Container.querySelectorAll('input[required], select[required]');
         let isValid = true;
@@ -595,7 +540,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (!isValid) return;
 
-        // Polygon Gate
         const polygonVal = polygonInput.value ? polygonInput.value.trim() : '';
         const hasValidPolygon = polygonVal.length > 0 && polygonVal !== '{}' && polygonVal !== 'null';
 
@@ -606,10 +550,14 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        // Capture live map snapshot before advancing to Step 2
+        if (typeof window.generateMapSnapshot === 'function') {
+            window.generateMapSnapshot();
+        }
+
         polygonAlert.classList.remove('is-active');
         btnDrawPolygon.classList.remove('map-btn-highlight');
 
-        // Disable polygon edit controls in Step 2
         btnDrawPolygon.disabled = true;
         btnDrawPolygon.classList.add('btn-disabled-map');
         btnClearPolygon.disabled = true;
@@ -619,10 +567,7 @@ document.addEventListener('DOMContentLoaded', function () {
             polygonDrawStatus.style.color = '#94a3b8';
         }
 
-        // Apply 50/50 layout shift
         splitContainer.classList.add('layout-balanced');
-
-        // View swap
         step1Container.classList.add('is-hidden');
         step2Container.classList.remove('is-hidden');
 
@@ -632,9 +577,7 @@ document.addEventListener('DOMContentLoaded', function () {
         notifyMapResize();
     });
 
-    // Step 2 -> Step 1 rollback
     btnBackToStep1.addEventListener('click', function () {
-        // Re-enable polygon edit controls when stepping back
         btnDrawPolygon.disabled = false;
         btnDrawPolygon.classList.remove('btn-disabled-map');
         btnClearPolygon.disabled = false;
@@ -654,18 +597,10 @@ document.addEventListener('DOMContentLoaded', function () {
         notifyMapResize();
     });
 
-    // Auto-clear polygon alert if map drawing finishes
-    const observer = new MutationObserver(() => {
-        if (polygonInput.value && polygonInput.value.trim() !== '') {
-            polygonAlert.classList.remove('is-active');
-            btnDrawPolygon.classList.remove('map-btn-highlight');
-        }
-    });
-    observer.observe(polygonInput, { attributes: true, attributeFilter: ['value'] });
-    polygonInput.addEventListener('change', () => {
-        if (polygonInput.value && polygonInput.value.trim() !== '') {
-            polygonAlert.classList.remove('is-active');
-            btnDrawPolygon.classList.remove('map-btn-highlight');
+    // Ensure final snapshot is fresh right before submit
+    document.getElementById('flight-plan-form').addEventListener('submit', function() {
+        if (typeof window.generateMapSnapshot === 'function') {
+            window.generateMapSnapshot();
         }
     });
 });
