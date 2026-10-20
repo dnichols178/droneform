@@ -13,6 +13,10 @@ $pdo = getDB();
 $msg = '';
 $err = '';
 
+if (isset($_GET['msg']) && $_GET['msg'] === 'user_deleted') {
+    $msg = "User account has been permanently deleted.";
+}
+
 /**
  * Helper to generate a strict, clean 'first.lastname' username from Full Name
  */
@@ -49,7 +53,7 @@ function generateUsername(string $fullName, PDO $pdo, int $excludeId = 0): strin
     return $username;
 }
 
-// Handle Create User (Part 107 removed per Requirement 6)
+// Handle Create User
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_user') {
     $fullName = trim($_POST['full_name'] ?? '');
     $password = $_POST['password'] ?? '';
@@ -58,7 +62,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $role = $_POST['role'] ?? 'pilot';
 
     if ($fullName && $password && $email) {
-        // Automatically generate username: first.lastname
         $username = generateUsername($fullName, $pdo);
         $hash = password_hash($password, PASSWORD_DEFAULT);
 
@@ -74,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Handle Update User via Modal (Part 107 removed per Requirement 6)
+// Handle Update User via Modal
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_user') {
     $userId = (int)($_POST['user_id'] ?? 0);
     $fullName = trim($_POST['full_name'] ?? '');
@@ -84,7 +87,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $role = $_POST['role'] ?? 'pilot';
 
     if ($userId && $fullName && $email) {
-        // Automatically sync username with full name
         $username = generateUsername($fullName, $pdo, $userId);
 
         try {
@@ -105,13 +107,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Handle Status Toggle
+// Handle Status Toggle (Enable / Disable)
 if (isset($_GET['toggle_id'])) {
     $toggleId = (int)$_GET['toggle_id'];
     if ($toggleId !== (int)$_SESSION['user_id']) {
         $pdo->prepare("UPDATE users SET is_active = (1 - is_active) WHERE id = ?")->execute([$toggleId]);
         header('Location: users.php');
         exit;
+    }
+}
+
+// Handle Delete User
+if (isset($_GET['delete_id'])) {
+    $deleteId = (int)$_GET['delete_id'];
+    if ($deleteId === (int)$_SESSION['user_id']) {
+        $err = "You cannot delete your own active administrator account.";
+    } else {
+        try {
+            $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
+            $stmt->execute([$deleteId]);
+            header('Location: users.php?msg=user_deleted');
+            exit;
+        } catch (PDOException $e) {
+            $err = "Unable to delete user: this operator is associated with existing flight plans, debrief logs, or system audit records. Disable the account instead to retain flight history.";
+        }
     }
 }
 
@@ -229,7 +248,7 @@ $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll()
                                         </span>
                                     </td>
                                     <td>
-                                        <div style="display: flex; gap: 0.35rem; align-items: center;">
+                                        <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
                                             <button type="button" 
                                                     class="btn btn-outline btn-sm btn-edit-user"
                                                     data-id="<?= $u['id'] ?>"
@@ -242,6 +261,12 @@ $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll()
                                             <?php if ($u['id'] !== (int)$_SESSION['user_id']): ?>
                                                 <a href="users.php?toggle_id=<?= $u['id'] ?>" class="btn btn-outline btn-sm">
                                                     <?= $u['is_active'] ? 'Disable' : 'Enable' ?>
+                                                </a>
+                                                <a href="users.php?delete_id=<?= $u['id'] ?>" 
+                                                   class="btn btn-outline btn-sm" 
+                                                   style="color: var(--danger); border-color: var(--border);"
+                                                   onclick="return confirm('Are you sure you want to permanently delete <?= htmlspecialchars(addslashes($u['full_name'])) ?>? This cannot be undone.');">
+                                                    Delete
                                                 </a>
                                             <?php else: ?>
                                                 <small style="color:var(--text-muted); padding: 0 0.3rem;">(You)</small>
