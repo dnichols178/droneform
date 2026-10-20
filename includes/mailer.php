@@ -53,20 +53,22 @@ function fetchSingleTile(string $url): string {
             CURLOPT_URL            => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
             CURLOPT_CONNECTTIMEOUT => 3,
             CURLOPT_TIMEOUT        => 4,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
             CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             CURLOPT_HTTPHEADER     => [
-                'Accept: image/jpeg,image/png,image/*;q=0.8'
+                'Accept: image/jpeg,image/png,image/*;q=0.8',
+                'Referer: https://www.arcgis.com/'
             ]
         ];
 
-        if (!empty($_SERVER['HTTP_PROXY'])) {
-            $opts[CURLOPT_PROXY] = $_SERVER['HTTP_PROXY'];
-        } elseif (!empty($_SERVER['http_proxy'])) {
-            $opts[CURLOPT_PROXY] = $_SERVER['http_proxy'];
+        $proxy = getenv('HTTP_PROXY') ?: getenv('http_proxy');
+        if ($proxy) {
+            $opts[CURLOPT_PROXY] = $proxy;
         }
 
         curl_setopt_array($ch, $opts);
@@ -83,7 +85,7 @@ function fetchSingleTile(string $url): string {
         $ctx = stream_context_create([
             'http' => [
                 'timeout' => 4,
-                'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
+                'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nReferer: https://www.arcgis.com/\r\n"
             ],
             'ssl' => [
                 'verify_peer'      => false,
@@ -100,6 +102,14 @@ function fetchSingleTile(string $url): string {
 }
 
 function generateFlightAreaImageBinary(array $flight): string {
+    // If base64 snapshot already exists, decode directly into raw PNG binary
+    if (!empty($flight['map_image_base64']) && str_starts_with($flight['map_image_base64'], 'data:image')) {
+        $parts = explode(',', $flight['map_image_base64'], 2);
+        if (!empty($parts[1])) {
+            return base64_decode($parts[1]);
+        }
+    }
+
     if (!function_exists('imagecreatetruecolor')) {
         return '';
     }
@@ -305,6 +315,10 @@ function generateFlightAreaImageBinary(array $flight): string {
 }
 
 function generateFlightAreaImageBase64(array $flight): string {
+    if (!empty($flight['map_image_base64']) && str_starts_with($flight['map_image_base64'], 'data:image')) {
+        return $flight['map_image_base64'];
+    }
+
     $binary = generateFlightAreaImageBinary($flight);
     if (!empty($binary)) {
         return 'data:image/png;base64,' . base64_encode($binary);
@@ -313,6 +327,10 @@ function generateFlightAreaImageBase64(array $flight): string {
 }
 
 function buildFlightNotificationHtml(array $flight, array $recipients, ?string $imageSrc = null): string {
+    if ($imageSrc === null || empty($imageSrc)) {
+        $imageSrc = generateFlightAreaImageBase64($flight);
+    }
+
     $laancBadgeColor = (!empty($flight['laanc_auth_number']) || $flight['laanc_status'] === 'AUTO_APPROVED') ? '#16a34a' : '#d97706';
     $laancBadgeBg = (!empty($flight['laanc_auth_number']) || $flight['laanc_status'] === 'AUTO_APPROVED') ? '#dcfce7' : '#fef3c7';
     $laancText = !empty($flight['laanc_auth_number']) ? htmlspecialchars($flight['laanc_auth_number']) : ($flight['airspace_class'] === 'G' ? 'NOT REQUIRED (CLASS G)' : 'PENDING');
@@ -349,19 +367,11 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     }
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
-    // Embedded Flight Map (renders live Leaflet satellite map in Step 3 preview; uses inline image for SMTP emails)
+    // Embedded Flight Map
     $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0f172a" style="background-color: #0f172a; border-radius: 6px; overflow: hidden; border: 1px solid #334155;">' . "\r\n";
     $html .= '                <tr><td align="center" style="padding: 0; background-color: #090d16;">' . "\r\n";
-
-    if ($imageSrc === 'preview_map') {
-        $html .= '                    <div id="flight-polygon-map" class="planner-map-container" style="height: 320px; width: 584px; max-width: 100%; border: 0;" data-interactive="false" data-lat="' . $flight['latitude'] . '" data-lng="' . $flight['longitude'] . '"></div>' . "\r\n";
-        $html .= '                    <input type="hidden" id="polygon_geojson" value="' . htmlspecialchars($flight['polygon_geojson'] ?? '') . '">' . "\r\n";
-    } else {
-        $srcVal = (!empty($imageSrc) && $imageSrc !== 'preview_map') ? $imageSrc : generateFlightAreaImageBase64($flight);
-        $html .= '                    <img src="' . $srcVal . '" alt="Flight Area Map" width="584" style="width: 100%; max-width: 584px; height: auto; display: block; border: 0;" />' . "\r\n";
-    }
-
+    $html .= '                    <img src="' . $imageSrc . '" alt="Flight Area Map" width="584" style="width: 100%; max-width: 584px; height: auto; display: block; border: 0;" />' . "\r\n";
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
     // Mission Scope
@@ -707,10 +717,14 @@ function sendFlightNotification(int $flightId, array $adHocEmails = [], ?string 
         return false;
     }
 
+    $base64Image = generateFlightAreaImageBase64($flight);
     $imageBinary = generateFlightAreaImageBinary($flight);
-    $htmlBody = buildFlightNotificationHtml($flight, $recipients, 'cid:flight_area_map');
+
+    // Embed base64 directly in the HTML for web/OWA clients
+    $htmlBody = buildFlightNotificationHtml($flight, $recipients, $base64Image);
     $textBody = buildFlightNotificationText($flight);
 
+    // Attach inline CID for desktop Outlook compatibility
     $inlineImages = [];
     if (!empty($imageBinary)) {
         $inlineImages['flight_area_map'] = [
@@ -771,8 +785,9 @@ function checkAndSendPostFlightReminders(): int {
                 'email'     => $recipientEmail
             ];
 
+            $base64Image = generateFlightAreaImageBase64($f);
             $imageBinary = generateFlightAreaImageBinary($f);
-            $htmlBody = buildPostFlightReminderHtml($f, $creator, 'cid:flight_area_map');
+            $htmlBody = buildPostFlightReminderHtml($f, $creator, $base64Image);
             $textBody = buildPostFlightReminderText($f, $creator);
 
             $inlineImages = [];
