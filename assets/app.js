@@ -33,7 +33,7 @@ function initFlightPlannerMap() {
 
     window.flightMap = map;
 
-    // Enable crossOrigin anonymous so canvas snapshot operations succeed
+    // Cross-origin enabled so client-side canvas snapshot can read imagery tiles
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         maxZoom: 19,
         crossOrigin: 'anonymous'
@@ -258,7 +258,7 @@ function initFlightPlannerMap() {
         detectAirspaceClass(centerLat, centerLng);
     }
 
-    // High-fidelity client-side satellite map snapshot generator
+    // High-resolution client satellite snapshot generator (strips data: prefix to prevent WAF 406 errors)
     window.generateMapSnapshot = function() {
         const input = document.getElementById('map_image_base64');
         if (!input) return;
@@ -323,7 +323,9 @@ function initFlightPlannerMap() {
             ctx.font = '10px sans-serif';
             ctx.fillText(`Footprint: ${acres} Ac | Ceiling: ${alt} ft AGL`, 20, 42);
 
-            input.value = canvas.toDataURL('image/jpeg', 0.85);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.80);
+            // Strip data URI scheme so WAF / ModSecurity does not block the POST as XSS with HTTP 406
+            input.value = dataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
         } catch (e) {
             console.warn('Canvas snapshot skipped:', e);
         }
