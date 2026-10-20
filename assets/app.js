@@ -1,12 +1,6 @@
 /**
  * UAS Part 107 Flight Operations Platform
  * Master Application Script (assets/app.js)
- * 
- * Includes:
- * 1. Leaflet Interactive Satellite Map & Aloft-Style Polygon Selector
- * 2. Real-Time FAA AIS Class Airspace GIS Classifier & Priority Scorer
- * 3. Dynamic Altitude & LAANC Advisory Evaluator
- * 4. User Edit Pop-Up Modal Dialog Controller
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -28,29 +22,29 @@ function initFlightPlannerMap() {
         return;
     }
 
-    // Default Coordinates (Barkley Regional / Paducah Area)
     const defaultLat = parseFloat(mapEl.dataset.lat || '37.115191');
     const defaultLng = parseFloat(mapEl.dataset.lng || '-88.811224');
     const isInteractive = mapEl.dataset.interactive === 'true';
 
-    // Initialize Leaflet Map
     const map = L.map('flight-polygon-map', {
         zoomControl: true,
         attributionControl: false
     }).setView([defaultLat, defaultLng], 14);
 
-    // Hybrid Satellite Imagery Layer (ESRI World Imagery)
+    window.flightMap = map;
+
+    // Enable crossOrigin anonymous so canvas snapshot operations succeed
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 19
+        maxZoom: 19,
+        crossOrigin: 'anonymous'
     }).addTo(map);
 
-    // Streets & Boundary Vector Overlay
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
-        opacity: 0.35
+        opacity: 0.35,
+        crossOrigin: 'anonymous'
     }).addTo(map);
 
-    // Invalidate size to ensure container bounds render cleanly
     setTimeout(() => {
         map.invalidateSize();
     }, 150);
@@ -60,7 +54,6 @@ function initFlightPlannerMap() {
     let polygonPoints = [];
     let isDrawing = false;
 
-    // UI & Form Elements
     const drawBtn = document.getElementById('btn-draw-polygon');
     const clearBtn = document.getElementById('btn-clear-polygon');
     const statusText = document.getElementById('polygon-draw-status');
@@ -71,7 +64,6 @@ function initFlightPlannerMap() {
     const lngInput = document.getElementById('longitude');
     const acresInput = document.getElementById('operational_acres');
 
-    // Preload polygon if present (flight_details view)
     if (polygonInput && polygonInput.value) {
         try {
             const existingGeo = JSON.parse(polygonInput.value);
@@ -90,42 +82,34 @@ function initFlightPlannerMap() {
         }
     }
 
-    // Run initial airspace query for default centroid
     detectAirspaceClass(defaultLat, defaultLng);
 
-    if (!isInteractive) return; // Read-only on detail screens
+    if (!isInteractive) return;
 
-    // Polygon Draw Button Toggle
     if (drawBtn) {
         drawBtn.addEventListener('click', () => {
             if (!isDrawing) {
-                // Enter active drawing state
                 resetPolygon();
                 isDrawing = true;
                 drawBtn.textContent = 'Finish Polygon';
                 drawBtn.className = 'btn btn-success btn-sm';
-                if (statusText) statusText.textContent = 'Click to drop boundary points. Drag points to adjust before finishing.';
+                if (statusText) statusText.textContent = 'Click map to place boundary points. Drag points to adjust before finishing.';
             } else {
-                // User pressed Finish Polygon
                 completePolygon();
             }
         });
     }
 
     if (clearBtn) {
-        clearBtn.addEventListener('click', () => {
-            resetPolygon();
-        });
+        clearBtn.addEventListener('click', resetPolygon);
     }
 
-    // Click Map to Add Boundary Vertices (ONLY permitted when isDrawing is true)
     map.on('click', (e) => {
         if (!isDrawing) return;
 
         const currentPointIndex = polygonPoints.length;
         polygonPoints.push(e.latlng);
 
-        // Create draggable handle for point adjustments prior to finishing
         const markerIcon = L.divIcon({
             className: 'polygon-vertex-handle',
             html: '<div style="width: 14px; height: 14px; background: #00d2ff; border: 2px solid #ffffff; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.6); cursor: grab;"></div>',
@@ -141,11 +125,9 @@ function initFlightPlannerMap() {
 
         marker.pointIndex = currentPointIndex;
 
-        // Enable live dragging of vertices before finishing polygon
         marker.on('drag', (dragEvent) => {
             if (!isDrawing) return;
-            const newPos = dragEvent.target.getLatLng();
-            polygonPoints[marker.pointIndex] = newPos;
+            polygonPoints[marker.pointIndex] = dragEvent.target.getLatLng();
             redrawActiveShape();
         });
 
@@ -158,7 +140,6 @@ function initFlightPlannerMap() {
         updateTelemetry();
     });
 
-    // Double-Click Map to Finalize Boundary
     map.on('dblclick', (e) => {
         if (!isDrawing) return;
         L.DomEvent.stop(e);
@@ -197,7 +178,6 @@ function initFlightPlannerMap() {
         }
         if (statusText) statusText.textContent = 'Flight boundary established';
 
-        // Remove vertex drag markers now that polygon is finalized
         markers.forEach(m => map.removeLayer(m));
         markers = [];
 
@@ -211,6 +191,7 @@ function initFlightPlannerMap() {
         }).addTo(map);
 
         updateTelemetry();
+        window.generateMapSnapshot();
     }
 
     function resetPolygon() {
@@ -246,7 +227,6 @@ function initFlightPlannerMap() {
         const centerLat = parseFloat((latSum / polygonPoints.length).toFixed(6));
         const centerLng = parseFloat((lngSum / polygonPoints.length).toFixed(6));
 
-        // Shoelace Formula for Area Calculation (Acres)
         let areaSqMeters = 0;
         const total = polygonPoints.length;
         for (let i = 0; i < total; i++) {
@@ -260,7 +240,6 @@ function initFlightPlannerMap() {
         areaSqMeters = Math.abs(areaSqMeters / 2.0);
         const calculatedAcres = (areaSqMeters * 0.000247105).toFixed(2);
 
-        // GeoJSON Closed Ring
         const coords = polygonPoints.map(p => [parseFloat(p.lng.toFixed(6)), parseFloat(p.lat.toFixed(6))]);
         coords.push(coords[0]);
 
@@ -276,9 +255,79 @@ function initFlightPlannerMap() {
         if (acresDisplay) acresDisplay.textContent = calculatedAcres;
         if (centerDisplay) centerDisplay.textContent = `${centerLat}, ${centerLng}`;
 
-        // Auto-query FAA airspace for the new centroid
         detectAirspaceClass(centerLat, centerLng);
     }
+
+    // High-fidelity client-side satellite map snapshot generator
+    window.generateMapSnapshot = function() {
+        const input = document.getElementById('map_image_base64');
+        if (!input) return;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 584;
+        canvas.height = 320;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, 584, 320);
+
+        const mapContainer = document.getElementById('flight-polygon-map');
+        if (!mapContainer) return;
+        const mapRect = mapContainer.getBoundingClientRect();
+        const tiles = mapContainer.querySelectorAll('.leaflet-tile-loaded');
+
+        try {
+            tiles.forEach(tile => {
+                if (tile.naturalWidth && tile.complete) {
+                    const rect = tile.getBoundingClientRect();
+                    const x = (rect.left - mapRect.left) * (584 / mapRect.width);
+                    const y = (rect.top - mapRect.top) * (320 / mapRect.height);
+                    const w = rect.width * (584 / mapRect.width);
+                    const h = rect.height * (320 / mapRect.height);
+                    ctx.drawImage(tile, x, y, w, h);
+                }
+            });
+
+            if (polygonPoints && polygonPoints.length >= 3) {
+                ctx.beginPath();
+                polygonPoints.forEach((p, idx) => {
+                    const pt = map.latLngToContainerPoint(p);
+                    const x = pt.x * (584 / mapRect.width);
+                    const y = pt.y * (320 / mapRect.height);
+                    if (idx === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(0, 210, 255, 0.25)';
+                ctx.fill();
+                ctx.strokeStyle = '#00d2ff';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+
+            // HUD Overlays
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+            ctx.fillRect(10, 10, 310, 42);
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(10, 10, 310, 42);
+
+            ctx.fillStyle = '#00d2ff';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.fillText('FLIGHT AREA BOUNDARY MAP', 20, 26);
+
+            const acres = document.getElementById('operational_acres') ? document.getElementById('operational_acres').value : '0';
+            const alt = document.getElementById('max_altitude') ? document.getElementById('max_altitude').value : '200';
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '10px sans-serif';
+            ctx.fillText(`Footprint: ${acres} Ac | Ceiling: ${alt} ft AGL`, 20, 42);
+
+            input.value = canvas.toDataURL('image/jpeg', 0.85);
+        } catch (e) {
+            console.warn('Canvas snapshot skipped:', e);
+        }
+    };
 }
 
 /* ==========================================================================
@@ -299,7 +348,6 @@ function detectAirspaceClass(lat, lng) {
         descEl.textContent = `Analyzing FAA airspace at [${lat}, ${lng}]...`;
     }
 
-    // Official FAA AIS Class Airspace ArcGIS Feature Server
     const faaEndpoint = `https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/Class_Airspace/FeatureServer/0/query?geometry=${lng},${lat}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=false&f=json`;
 
     const controller = new AbortController();
@@ -312,7 +360,7 @@ function detectAirspaceClass(lat, lng) {
 
             let bestClass = 'G';
             let bestName = 'Uncontrolled Surface Airspace';
-            let highestPriority = 0; // 100: B, 80: C, 60: D, 40: Surface E, 0: Transition E / G
+            let highestPriority = 0;
 
             if (data && data.features && data.features.length > 0) {
                 for (const feature of data.features) {
@@ -322,35 +370,27 @@ function detectAirspaceClass(lat, lng) {
                     const name = attr.NAME || attr.AIRPORT_NAME || 'Controlled Airspace';
                     const lowerVal = parseFloat(attr.LOWER_VAL !== undefined ? attr.LOWER_VAL : 0);
                     const lowerDesc = (attr.LOWER_DESC || attr.LOWER_CODE || '').toUpperCase();
-
                     const isSurface = (lowerVal === 0 || lowerDesc.includes('SFC') || lowerDesc.includes('SURFACE') || localType.includes('SURFACE'));
 
-                    // Priority 1: Class B
                     if ((rawClass === 'B' || localType.includes('CLASS B') || localType.includes('CLASS_B')) && (isSurface || lowerVal <= 400)) {
                         if (highestPriority < 100) {
                             highestPriority = 100;
                             bestClass = 'B';
                             bestName = `${name} (Class B)`;
                         }
-                    }
-                    // Priority 2: Class C
-                    else if ((rawClass === 'C' || localType.includes('CLASS C') || localType.includes('CLASS_C')) && (isSurface || lowerVal <= 400)) {
+                    } else if ((rawClass === 'C' || localType.includes('CLASS C') || localType.includes('CLASS_C')) && (isSurface || lowerVal <= 400)) {
                         if (highestPriority < 80) {
                             highestPriority = 80;
                             bestClass = 'C';
                             bestName = `${name} (Class C)`;
                         }
-                    }
-                    // Priority 3: Class D (Barkley Regional / Paducah)
-                    else if (rawClass === 'D' || localType.includes('CLASS D') || localType.includes('CLASS_D')) {
+                    } else if (rawClass === 'D' || localType.includes('CLASS D') || localType.includes('CLASS_D')) {
                         if (highestPriority < 60) {
                             highestPriority = 60;
                             bestClass = 'D';
                             bestName = `${name} (Class D)`;
                         }
-                    }
-                    // Priority 4: Class E Surface Area (Class E2)
-                    else if (rawClass === 'E' || localType.includes('CLASS E') || localType.includes('CLASS_E')) {
+                    } else if (rawClass === 'E' || localType.includes('CLASS E') || localType.includes('CLASS_E')) {
                         const isSurfaceE = isSurface || localType.includes('E2') || localType.includes('SURFACE');
                         if (isSurfaceE && lowerVal === 0 && highestPriority < 40) {
                             highestPriority = 40;
@@ -361,7 +401,6 @@ function detectAirspaceClass(lat, lng) {
                 }
             }
 
-            // Barkley Regional Airport (KPAH) 4.1 NM Class D lateral boundary check
             const dLat = (lat - 37.0608) * 111.0;
             const dLng = (lng - (-88.7738)) * 88.6;
             const distFromPahKm = Math.sqrt(dLat * dLat + dLng * dLng);
@@ -415,7 +454,6 @@ function applyAirspaceClassification(airspaceClass, airspaceName, lat, lng) {
         mapAirspaceEl.style.color = airspaceClass === 'G' ? '#22c55e' : '#f59e0b';
     }
 
-    // Refresh LAANC guidance based on detected class and planned altitude
     const alt = parseInt(altInput ? altInput.value : '200', 10);
     if (laancBadge) {
         if (airspaceClass === 'G') {
@@ -472,7 +510,6 @@ function initUserEditModal() {
     const phoneInput = document.getElementById('edit_phone');
     const roleInput = document.getElementById('edit_role');
 
-    // Attach click listeners to all Edit buttons safely
     document.querySelectorAll('.btn-edit-user').forEach(btn => {
         btn.addEventListener('click', () => {
             if (idInput) idInput.value = btn.dataset.id || '';
@@ -480,7 +517,7 @@ function initUserEditModal() {
             if (emailInput) emailInput.value = btn.dataset.email || '';
             if (phoneInput) phoneInput.value = btn.dataset.phone || '';
             if (roleInput) roleInput.value = btn.dataset.role || 'pilot';
-            if (passInput) passInput.value = ''; // Always clear password on open
+            if (passInput) passInput.value = '';
 
             modal.style.display = 'flex';
         });
@@ -493,14 +530,12 @@ function initUserEditModal() {
     if (closeBtn) closeBtn.addEventListener('click', closeModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
 
-    // Close when clicking directly on the backdrop
     modal.addEventListener('click', (e) => {
         if (e.target === modal) {
             closeModal();
         }
     });
 
-    // Close on Escape key press
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && modal.style.display === 'flex') {
             closeModal();
