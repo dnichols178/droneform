@@ -11,6 +11,15 @@ $actionMsg = '';
 $actionError = '';
 $keepOnStep3 = false;
 
+// Handle background auto-save of client-captured base64 satellite image
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_map_snapshot') {
+    $imgBase64 = trim($_POST['map_image_base64'] ?? '');
+    if (!empty($imgBase64) && str_starts_with($imgBase64, 'data:image')) {
+        $pdo->prepare("UPDATE flights SET map_image_base64 = ? WHERE id = ? AND (map_image_base64 IS NULL OR map_image_base64 = '')")->execute([$imgBase64, $flightId]);
+    }
+    exit;
+}
+
 // Handle POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -24,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    // STEP 1: Record LAANC code (Includes Duplicate Check)
+    // STEP 1: Record LAANC code
     if ($action === 'record_laanc') {
         $code = strtoupper(trim($_POST['laanc_auth_number'] ?? ''));
         if (!empty($code)) {
@@ -84,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch Flight Details (Part 107 cert number removed per Requirement 6)
+// Fetch Flight Details
 $stmt = $pdo->prepare("
     SELECT f.*, u.full_name AS pilot_name, u.phone AS pilot_phone, u.email AS pilot_email
     FROM flights f
@@ -169,8 +178,8 @@ $flightLog = $logStmt->fetch();
     $previewFrom = "FRNP Drone Flight Operations" . " <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
     $previewTo = implode(', ', $allRecipients);
     $previewSubject = "FRNP Flight Notification " . $flight['flight_number'];
-    // Pass 'preview_map' to render satellite imagery via Leaflet directly in the draft preview
-    $previewHtml = buildFlightNotificationHtml($flight, $allRecipients, 'preview_map');
+    // Pass the embedded base64 string directly
+    $previewHtml = buildFlightNotificationHtml($flight, $allRecipients);
     ?>
     <div class="card" style="border-top: 4px solid var(--success); max-width: 960px; margin: 0 auto 2rem auto;">
         <div class="card-header">
@@ -219,9 +228,8 @@ $flightLog = $logStmt->fetch();
     </div>
 
 <?php else: ?>
-    <!-- 2-COLUMN LAYOUT: FLIGHT INFO ON LEFT, MAP ON RIGHT (Steps 1, 2, and Active Status) -->
+    <!-- 2-COLUMN LAYOUT: FLIGHT INFO ON LEFT, MAP ON RIGHT -->
     <div class="flight-details-split">
-        <!-- LEFT COLUMN: WORKFLOW STAGE & FLIGHT DATA -->
         <div class="flight-details-left">
             <!-- STEP 1: LAANC AUTHORIZATION INPUT -->
             <?php if ($currentStep === '1'): ?>
@@ -273,8 +281,8 @@ $flightLog = $logStmt->fetch();
                     <div class="card-body">
                         <table class="table">
                             <tr><th>Flight Plan #</th><td><strong><?= htmlspecialchars($flight['flight_number']) ?></strong></td></tr>
-                            <tr><th>Work Control</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
-                            <tr><th>Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
+                            <tr><th>Work Package</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
+                            <tr><th>Target Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
                             <tr><th>Mission Scope</th><td><?= htmlspecialchars($flight['mission_purpose']) ?></td></tr>
                             <?php if (!empty($flight['aircraft_model'])): ?>
                                 <tr><th>Aircraft Model</th><td><?= htmlspecialchars($flight['aircraft_model']) ?></td></tr>
@@ -312,7 +320,7 @@ $flightLog = $logStmt->fetch();
                                 <td><strong><?= htmlspecialchars($flight['flight_number']) ?></strong></td>
                             </tr>
                             <tr>
-                                <th>Work Control</th>
+                                <th>Work Package</th>
                                 <td><?= htmlspecialchars($flight['work_package']) ?></td>
                             </tr>
                             <tr>
@@ -350,6 +358,10 @@ $flightLog = $logStmt->fetch();
                             <tr>
                                 <th>Centroid Coordinates</th>
                                 <td><?= $flight['latitude'] ?>, <?= $flight['longitude'] ?></td>
+                            </tr>
+                            <tr>
+                                <th>Operational Area</th>
+                                <td><?= $flight['operational_acres'] ?> Acres</td>
                             </tr>
                             <tr>
                                 <th>Max Altitude</th>
@@ -392,7 +404,7 @@ $flightLog = $logStmt->fetch();
             <!-- STAGE 4 (COMPLETE): NOTIFICATIONS SENT & MISSION ACTIVE -->
             <?php else: ?>
                 <div class="card">
-                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: gap; gap: 0.5rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                         <h2 class="card-title" style="margin-bottom: 0;">Flight Plan: <?= htmlspecialchars($flight['flight_number']) ?></h2>
                         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                             <a href="flight_report.php?id=<?= $flight['id'] ?>" target="_blank" class="btn btn-outline btn-sm">
@@ -407,8 +419,8 @@ $flightLog = $logStmt->fetch();
                     </div>
                     <div class="card-body">
                         <table class="table" style="margin-bottom: 1.5rem;">
-                            <tr><th>Work Control</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
-                            <tr><th>Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
+                            <tr><th>Work Package</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
+                            <tr><th>Target Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
                             <tr><th>Mission Scope</th><td><strong style="color: var(--primary-dark);"><?= nl2br(htmlspecialchars($flight['mission_purpose'])) ?></strong></td></tr>
                             <tr><th>Aircraft Model</th><td><?= htmlspecialchars($flight['aircraft_model']) ?></td></tr>
                             <?php if (!empty($flight['faa_reg_number'])): ?>
@@ -424,6 +436,7 @@ $flightLog = $logStmt->fetch();
                             <tr><th>LAANC Authorization #</th><td><strong style="color: var(--success); font-family: monospace;"><?= htmlspecialchars($flight['laanc_auth_number'] ?: 'NOT REQUIRED') ?></strong></td></tr>
                             <tr><th>Centroid</th><td><?= $flight['latitude'] ?>, <?= $flight['longitude'] ?></td></tr>
                             <tr><th>Max Altitude</th><td><strong><?= $flight['max_altitude'] ?> ft AGL</strong></td></tr>
+                            <tr><th>Operational Area</th><td><?= $flight['operational_acres'] ?> Acres</td></tr>
                             <tr><th>Schedule Window</th><td><?= $flight['flight_date'] ?> (<?= $flight['start_time'] ?> - <?= $flight['end_time'] ?> Local)</td></tr>
                             <tr><th>Remote PIC</th><td><?= htmlspecialchars($flight['pilot_name']) ?></td></tr>
                         </table>
@@ -460,6 +473,7 @@ $flightLog = $logStmt->fetch();
                      data-lng="<?= $flight['longitude'] ?>">
                 </div>
                 <input type="hidden" id="polygon_geojson" value="<?= htmlspecialchars($flight['polygon_geojson'] ?? '') ?>">
+                <input type="hidden" id="map_image_base64" value="<?= htmlspecialchars($flight['map_image_base64'] ?? '') ?>">
                 <div class="map-telemetry-bar">
                     <div class="map-telemetry-item">Centroid: <strong><?= $flight['latitude'] ?>, <?= $flight['longitude'] ?></strong></div>
                     <div class="map-telemetry-item">Ceiling: <strong><?= $flight['max_altitude'] ?> ft</strong></div>
@@ -492,5 +506,25 @@ $flightLog = $logStmt->fetch();
         </div>
     </div>
 <?php endif; ?>
+
+<script>
+// If viewing Step 1 or 2 and flight has no saved base64 image yet, auto-capture from visible Leaflet satellite map
+document.addEventListener('DOMContentLoaded', function () {
+    const hiddenSnap = document.getElementById('map_image_base64');
+    if (hiddenSnap && (!hiddenSnap.value || hiddenSnap.value.trim() === '')) {
+        setTimeout(function() {
+            if (typeof window.generateMapSnapshot === 'function') {
+                window.generateMapSnapshot();
+                if (hiddenSnap.value && hiddenSnap.value.startsWith('data:image')) {
+                    const fd = new FormData();
+                    fd.append('action', 'save_map_snapshot');
+                    fd.append('map_image_base64', hiddenSnap.value);
+                    fetch('flight_details.php?id=<?= $flightId ?>', { method: 'POST', body: fd });
+                }
+            }
+        }, 1200);
+    }
+});
+</script>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>
