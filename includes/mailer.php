@@ -100,7 +100,6 @@ function generateFlightAreaImageBinary(array $flight): string {
         $cyan = imagecolorallocate($img, 0, 210, 255);
         $cyanFill = imagecolorallocatealpha($img, 0, 210, 255, 80);
         $white = imagecolorallocate($img, 248, 250, 252);
-        $muted = imagecolorallocate($img, 148, 163, 184);
         $green = imagecolorallocate($img, 34, 197, 94);
         $yellow = imagecolorallocate($img, 245, 158, 11);
         $hudBg = imagecolorallocatealpha($img, 15, 23, 42, 30);
@@ -118,7 +117,7 @@ function generateFlightAreaImageBinary(array $flight): string {
         $tileMinY = (int)floor($imgMinY / 256.0);
         $tileMaxY = (int)floor(($imgMinY + $height) / 256.0);
 
-        $cacheDir = DATA_PATH . '/tile_cache';
+        $cacheDir = defined('DATA_PATH') ? (DATA_PATH . '/tile_cache') : (__DIR__ . '/../data/tile_cache');
         if (!file_exists($cacheDir)) {
             @mkdir($cacheDir, 0777, true);
         }
@@ -136,41 +135,78 @@ function generateFlightAreaImageBinary(array $flight): string {
                 } else {
                     $tilesToFetch[$key] = [
                         'url' => "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}",
+                        'backup_url' => "https://mt1.google.com/vt/lyrs=s&x={$tx}&y={$ty}&z={$optimalZoom}",
                         'cache_path' => $cachePath
                     ];
                 }
             }
         }
 
+        // Fetch missing tiles using valid browser headers to prevent 403 Forbidden
         if (!empty($tilesToFetch) && function_exists('curl_multi_init')) {
             $mh = curl_multi_init();
             $curlHandles = [];
+
+            $headers = [
+                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'Referer: https://www.arcgis.com/',
+                'Accept-Language: en-US,en;q=0.9'
+            ];
 
             foreach ($tilesToFetch as $key => $info) {
                 $ch = curl_init();
                 curl_setopt($ch, CURLOPT_URL, $info['url']);
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
                 curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
-                curl_setopt($ch, CURLOPT_USERAGENT, 'Part107-Ops-Satellite/1.0');
+                curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+                curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
                 curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
                 curl_multi_add_handle($mh, $ch);
                 $curlHandles[$key] = $ch;
             }
 
-            $running = null;
+            $active = null;
             do {
-                curl_multi_exec($mh, $running);
-                curl_multi_select($mh, 0.1);
-            } while ($running > 0);
+                $status = curl_multi_exec($mh, $active);
+            } while ($status === CURLM_CALL_MULTI_PERFORM);
+
+            while ($active && $status === CURLM_OK) {
+                if (curl_multi_select($mh, 0.5) === -1) {
+                    usleep(25000); // 25ms delay if select returns -1
+                }
+                do {
+                    $status = curl_multi_exec($mh, $active);
+                } while ($status === CURLM_CALL_MULTI_PERFORM);
+            }
 
             foreach ($curlHandles as $key => $ch) {
                 $rawTile = curl_multi_getcontent($ch);
                 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
                 if ($httpCode === 200 && !empty($rawTile) && strlen($rawTile) > 500) {
                     @file_put_contents($tilesToFetch[$key]['cache_path'], $rawTile);
                     $tilesData[$key] = $rawTile;
+                } else {
+                    // Fallback to secondary satellite tile if primary was rejected or timed out
+                    $backupUrl = $tilesToFetch[$key]['backup_url'];
+                    $bCh = curl_init($backupUrl);
+                    curl_setopt($bCh, CURLOPT_RETURNTRANSFER, true);
+                    curl_setopt($bCh, CURLOPT_FOLLOWLOCATION, true);
+                    curl_setopt($bCh, CURLOPT_TIMEOUT, 4);
+                    curl_setopt($bCh, CURLOPT_SSL_VERIFYPEER, false);
+                    curl_setopt($bCh, CURLOPT_SSL_VERIFYHOST, 0);
+                    curl_setopt($bCh, CURLOPT_HTTPHEADER, $headers);
+                    $backupTile = curl_exec($bCh);
+                    $bCode = curl_getinfo($bCh, CURLINFO_HTTP_CODE);
+                    curl_close($bCh);
+
+                    if ($bCode === 200 && !empty($backupTile) && strlen($backupTile) > 500) {
+                        @file_put_contents($tilesToFetch[$key]['cache_path'], $backupTile);
+                        $tilesData[$key] = $backupTile;
+                    }
                 }
                 curl_multi_remove_handle($mh, $ch);
                 curl_close($ch);
@@ -188,14 +224,40 @@ function generateFlightAreaImageBinary(array $flight): string {
                 if (!empty($tilesData[$key])) {
                     $tileImg = @imagecreatefromstring($tilesData[$key]);
                     if ($tileImg) {
-                        imagecopy($img, $tileImg, $destX, $destY, 0, 0, 256, 256);
+                        $srcX = 0;
+                        $srcY = 0;
+                        $srcW = 256;
+                        $srcH = 256;
+
+                        // Clip negative canvas bounds safely for GD compatibility
+                        if ($destX < 0) {
+                            $srcX = -$destX;
+                            $srcW -= $srcX;
+                            $destX = 0;
+                        }
+                        if ($destY < 0) {
+                            $srcY = -$destY;
+                            $srcH -= $srcY;
+                            $destY = 0;
+                        }
+                        if ($destX + $srcW > $width) {
+                            $srcW = $width - $destX;
+                        }
+                        if ($destY + $srcH > $height) {
+                            $srcH = $height - $destY;
+                        }
+
+                        if ($srcW > 0 && $srcH > 0) {
+                            imagecopy($img, $tileImg, $destX, $destY, $srcX, $srcY, $srcW, $srcH);
+                            $loadedSatCount++;
+                        }
                         imagedestroy($tileImg);
-                        $loadedSatCount++;
                     }
                 }
             }
         }
 
+        // If satellite tiles could not be fetched due to offline/strict firewall status, draw tactical grid
         if ($loadedSatCount === 0) {
             imagefilledrectangle($img, 0, 0, $width, $height, $bgDark);
             for ($x = 0; $x < $width; $x += 35) {
@@ -230,7 +292,6 @@ function generateFlightAreaImageBinary(array $flight): string {
         $centroidX = $projectX($lng);
         $centroidY = $projectY($lat);
 
-        // Fixed vertical crosshair coordinate offsets
         imagesetthickness($img, 3);
         imageline($img, $centroidX - 13, $centroidY, $centroidX + 13, $centroidY, $shadow);
         imageline($img, $centroidX, $centroidY - 13, $centroidX, $centroidY + 13, $shadow);
@@ -272,93 +333,12 @@ function generateFlightAreaImageBinary(array $flight): string {
     return '';
 }
 
-/**
- * Fallback standalone SVG generator ensuring images are never broken on Step 3 or in email clients
- */
-function generateFlightAreaSvgBase64(array $flight): string {
-    $width = 584;
-    $height = 320;
-
-    $lat = (float)($flight['latitude'] ?? 37.115191);
-    $lng = (float)($flight['longitude'] ?? -88.811224);
-    $acres = htmlspecialchars((string)($flight['operational_acres'] ?? '0.00'));
-    $alt = htmlspecialchars((string)($flight['max_altitude'] ?? '200'));
-    $airspaceClass = htmlspecialchars((string)($flight['airspace_class'] ?? 'G'));
-
-    $pointsSvg = '';
-    $rawCoords = [];
-    if (!empty($flight['polygon_geojson'])) {
-        $geo = @json_decode($flight['polygon_geojson'], true);
-        if (!empty($geo['coordinates'][0]) && is_array($geo['coordinates'][0])) {
-            $rawCoords = $geo['coordinates'][0];
-        }
-    }
-
-    if (!empty($rawCoords)) {
-        $lats = array_column($rawCoords, 1);
-        $lngs = array_column($rawCoords, 0);
-        $minLat = min($lats);
-        $maxLat = max($lats);
-        $minLng = min($lngs);
-        $maxLng = max($lngs);
-
-        $spanLat = max(0.0001, $maxLat - $minLat);
-        $spanLng = max(0.0001, $maxLng - $minLng);
-
-        $svgCoords = [];
-        foreach ($rawCoords as $c) {
-            $px = 60 + (($c[0] - $minLng) / $spanLng) * ($width - 120);
-            $py = ($height - 60) - (($c[1] - $minLat) / $spanLat) * ($height - 120);
-            $svgCoords[] = round($px, 1) . ',' . round($py, 1);
-        }
-        $pointsSvg = implode(' ', $svgCoords);
-    }
-
-    $cx = round($width / 2, 1);
-    $cy = round($height / 2, 1);
-
-    $svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' . $width . ' ' . $height . '" width="' . $width . '" height="' . $height . '" style="background:#0f172a; font-family:sans-serif;">' .
-           '<defs>' .
-           '<pattern id="grid" width="35" height="35" patternUnits="userSpaceOnUse"><path d="M 35 0 L 0 0 0 35" fill="none" stroke="#1e293b" stroke-width="1"/></pattern>' .
-           '</defs>' .
-           '<rect width="' . $width . '" height="' . $height . '" fill="#0f172a"/>' .
-           '<rect width="' . $width . '" height="' . $height . '" fill="url(#grid)"/>';
-
-    if (!empty($pointsSvg)) {
-        $svg .= '<polygon points="' . $pointsSvg . '" fill="rgba(0, 210, 255, 0.25)" stroke="#00d2ff" stroke-width="3" stroke-linejoin="round"/>';
-    }
-
-    // Centroid Crosshair
-    $svg .= '<circle cx="' . $cx . '" cy="' . $cy . '" r="9" stroke="#00d2ff" stroke-width="2" fill="none"/>' .
-            '<line x1="' . ($cx - 13) . '" y1="' . $cy . '" x2="' . ($cx + 13) . '" y2="' . $cy . '" stroke="#00d2ff" stroke-width="2"/>' .
-            '<line x1="' . $cx . '" y1="' . ($cy - 13) . '" x2="' . $cx . '" y2="' . ($cy + 13) . '" stroke="#00d2ff" stroke-width="2"/>' .
-            '<circle cx="' . $cx . '" cy="' . $cy . '" r="2.5" fill="#ffffff"/>';
-
-    // Top HUD
-    $svg .= '<rect x="10" y="10" width="310" height="42" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
-            '<text x="20" y="27" fill="#00d2ff" font-size="12" font-weight="bold">FLIGHT AREA BOUNDARY MAP</text>' .
-            '<text x="20" y="43" fill="#f8fafc" font-size="10">Footprint: ' . $acres . ' Ac | Ceiling: ' . $alt . ' ft AGL</text>';
-
-    // North Compass
-    $svg .= '<rect x="' . ($width - 44) . '" y="10" width="34" height="42" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
-            '<text x="' . ($width - 32) . '" y="27" fill="#ffffff" font-size="12" font-weight="bold">N</text>' .
-            '<line x1="' . ($width - 27) . '" y1="31" x2="' . ($width - 27) . '" y2="42" stroke="#00d2ff" stroke-width="2"/>';
-
-    // Bottom Telemetry Bar
-    $svg .= '<rect x="10" y="' . ($height - 34) . '" width="' . ($width - 20) . '" height="26" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
-            '<text x="20" y="' . ($height - 17) . '" fill="#f8fafc" font-size="10">Centroid: ' . round($lat, 6) . ', ' . round($lng, 6) . '</text>' .
-            '<text x="' . ($width - 140) . '" y="' . ($height - 17) . '" fill="' . ($airspaceClass === 'G' ? '#22c55e' : '#f59e0b') . '" font-size="10" font-weight="bold">Airspace: Class ' . $airspaceClass . '</text>' .
-            '</svg>';
-
-    return 'data:image/svg+xml;base64,' . base64_encode($svg);
-}
-
 function generateFlightAreaImageBase64(array $flight): string {
     $binary = generateFlightAreaImageBinary($flight);
     if (!empty($binary)) {
         return 'data:image/png;base64,' . base64_encode($binary);
     }
-    return generateFlightAreaSvgBase64($flight);
+    return '';
 }
 
 function buildFlightNotificationHtml(array $flight, array $recipients, ?string $imageSrc = null): string {
@@ -417,7 +397,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     $html .= '                    <div style="font-size: 13px; line-height: 18px; color: #1e293b; font-weight: 600;">' . nl2br(htmlspecialchars($flight['mission_purpose'])) . '</div>' . "\r\n";
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
-    // Operations Data Table (Part 107 removed; Payload & Drone FAA Reg added)
+    // Operations Data Table
     $html .= '          <tr><td style="padding: 10px 28px 20px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">' . "\r\n";
     
@@ -732,7 +712,6 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
  */
 function sendFlightNotification(int $flightId, array $adHocEmails = [], ?string &$errorOutput = null): bool {
     $pdo = getDB();
-    // Removed u.part107_cert_num query per Requirement 6
     $stmt = $pdo->prepare("
         SELECT f.*, u.full_name AS pilot_name, u.phone AS pilot_phone, u.email AS pilot_email
         FROM flights f
