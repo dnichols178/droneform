@@ -64,8 +64,7 @@ function fetchSingleTile(string $url): string {
             CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
             CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             CURLOPT_HTTPHEADER     => [
-                'Accept: image/jpeg,image/png,image/*;q=0.8',
-                'Referer: https://basemap.nationalmap.gov/'
+                'Accept: image/jpeg,image/png,image/*;q=0.8'
             ]
         ];
 
@@ -88,7 +87,7 @@ function fetchSingleTile(string $url): string {
         $ctx = stream_context_create([
             'http' => [
                 'timeout' => 4,
-                'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nReferer: https://basemap.nationalmap.gov/\r\n"
+                'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
             ],
             'ssl' => [
                 'verify_peer'      => false,
@@ -105,22 +104,9 @@ function fetchSingleTile(string $url): string {
 }
 
 /**
- * Generates raw image binary of 90° top-down orthorectified satellite imagery stitched with flight boundary & telemetry
+ * Generates raw PNG binary of 90° top-down nadir satellite imagery stitched with flight boundary & telemetry
  */
 function generateFlightAreaImageBinary(array $flight): string {
-    // If client-side snapshot exists, decode directly into binary
-    if (!empty($flight['map_image_base64'])) {
-        $raw = trim($flight['map_image_base64']);
-        if (str_starts_with($raw, 'data:image')) {
-            $parts = explode(',', $raw, 2);
-            $raw = $parts[1] ?? '';
-        }
-        $decoded = base64_decode($raw);
-        if (!empty($decoded) && strlen($decoded) > 500) {
-            return $decoded;
-        }
-    }
-
     if (!function_exists('imagecreatetruecolor')) {
         return '';
     }
@@ -152,9 +138,9 @@ function generateFlightAreaImageBinary(array $flight): string {
     $centerLat = ($minLat + $maxLat) / 2.0;
     $centerLng = ($minLng + $maxLng) / 2.0;
 
-    // Zoom level 14-16 for sharp, top-down ortho resolution
+    // Calculate optimal zoom level based on bounding box
     $optimalZoom = 15;
-    for ($z = 16; $z >= 13; $z--) {
+    for ($z = 18; $z >= 13; $z--) {
         $wPx = abs(mercatorLon2X($maxLng, $z) - mercatorLon2X($minLng, $z));
         $hPx = abs(mercatorLat2Y($maxLat, $z) - mercatorLat2Y($minLat, $z));
         if ($wPx <= ($width * 0.65) && $hPx <= ($height * 0.65)) {
@@ -162,7 +148,7 @@ function generateFlightAreaImageBinary(array $flight): string {
             break;
         }
     }
-    $optimalZoom = min(16, max(13, $optimalZoom));
+    $optimalZoom = min(18, max(13, $optimalZoom));
 
     $img = imagecreatetruecolor($width, $height);
     imagealphablending($img, true);
@@ -199,21 +185,19 @@ function generateFlightAreaImageBinary(array $flight): string {
 
     for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
         for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
-            // New cache namespace ensures previously cached angled/hybrid tiles are replaced
-            $cacheFile = $cacheDir . "/tile_ortho_{$optimalZoom}_{$ty}_{$tx}.jpg";
+            $cacheFile = $cacheDir . "/tile_topdown_{$optimalZoom}_{$ty}_{$tx}.jpg";
             $tileRaw = '';
 
             if (file_exists($cacheFile) && filesize($cacheFile) > 500) {
                 $tileRaw = file_get_contents($cacheFile);
             } else {
-                // Primary: USGS National Map Orthoimagery (strictly 90° flat orthogonal perspective)
-                $usgsUrl = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
-                $tileRaw = fetchSingleTile($usgsUrl);
+                // Top-down 90° nadir satellite imagery (supports zoom 0-20 without 404s)
+                $tileUrl = "https://mt1.google.com/vt/lyrs=s&x={$tx}&y={$ty}&z={$optimalZoom}";
+                $tileRaw = fetchSingleTile($tileUrl);
 
-                // Fallback: ESRI World Imagery
                 if (empty($tileRaw)) {
-                    $esriUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
-                    $tileRaw = fetchSingleTile($esriUrl);
+                    $tileUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
+                    $tileRaw = fetchSingleTile($tileUrl);
                 }
 
                 if (!empty($tileRaw)) {
@@ -259,7 +243,6 @@ function generateFlightAreaImageBinary(array $flight): string {
         }
     }
 
-    // Fallback tactical grid if server cannot connect to external imagery
     if ($loadedSatCount === 0) {
         imagefilledrectangle($img, 0, 0, $width, $height, $bgDark);
         for ($x = 0; $x < $width; $x += 35) {
@@ -333,14 +316,6 @@ function generateFlightAreaImageBinary(array $flight): string {
 }
 
 function generateFlightAreaImageBase64(array $flight): string {
-    if (!empty($flight['map_image_base64'])) {
-        $raw = trim($flight['map_image_base64']);
-        if (str_starts_with($raw, 'data:image')) {
-            return $raw;
-        }
-        return 'data:image/jpeg;base64,' . $raw;
-    }
-
     $binary = generateFlightAreaImageBinary($flight);
     if (!empty($binary)) {
         return 'data:image/png;base64,' . base64_encode($binary);
@@ -389,7 +364,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     }
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
-    // Embedded Top-Down Satellite Map
+    // Embedded Flight Map
     $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0f172a" style="background-color: #0f172a; border-radius: 6px; overflow: hidden; border: 1px solid #334155;">' . "\r\n";
     $html .= '                <tr><td align="center" style="padding: 0; background-color: #090d16;">' . "\r\n";
@@ -742,11 +717,9 @@ function sendFlightNotification(int $flightId, array $adHocEmails = [], ?string 
     $base64Image = generateFlightAreaImageBase64($flight);
     $imageBinary = generateFlightAreaImageBinary($flight);
 
-    // Embed base64 directly in the HTML for web/OWA clients
     $htmlBody = buildFlightNotificationHtml($flight, $recipients, $base64Image);
     $textBody = buildFlightNotificationText($flight);
 
-    // Attach inline CID for desktop Outlook compatibility
     $inlineImages = [];
     if (!empty($imageBinary)) {
         $inlineImages['flight_area_map'] = [
