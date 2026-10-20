@@ -50,32 +50,52 @@ function mercatorLat2Y(float $lat, int $zoom): float {
 }
 
 /**
- * Downloads a single web tile safely with proper headers and timeout
+ * Direct synchronous tile fetcher with browser-grade headers
  */
-function fetchTile(string $url): string {
-    if (!function_exists('curl_init')) {
-        $ctx = stream_context_create([
-            'http' => [
-                'timeout' => 3,
-                'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+function fetchSingleTile(string $url): string {
+    if (function_exists('curl_init')) {
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT        => 4,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            CURLOPT_HTTPHEADER     => [
+                'Referer: https://www.arcgis.com/',
+                'Accept: image/jpeg,image/png,image/*;q=0.8'
             ]
         ]);
-        return @file_get_contents($url, false, $ctx) ?: '';
+        $data = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($code === 200 && !empty($data) && strlen($data) > 500) {
+            return $data;
+        }
     }
 
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-    $res = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+    if (ini_get('allow_url_fopen')) {
+        $ctx = stream_context_create([
+            'http' => [
+                'timeout' => 4,
+                'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nReferer: https://www.arcgis.com/\r\n"
+            ],
+            'ssl' => [
+                'verify_peer'      => false,
+                'verify_peer_name' => false
+            ]
+        ]);
+        $data = @file_get_contents($url, false, $ctx);
+        if (!empty($data) && strlen($data) > 500) {
+            return $data;
+        }
+    }
 
-    return ($code === 200 && !empty($res) && strlen($res) > 500) ? $res : '';
+    return '';
 }
 
 /**
@@ -113,15 +133,17 @@ function generateFlightAreaImageBinary(array $flight): string {
     $centerLat = ($minLat + $maxLat) / 2.0;
     $centerLng = ($minLng + $maxLng) / 2.0;
 
+    // Clamp zoom to 14-16 to ensure high-resolution coverage exists in Western Kentucky
     $optimalZoom = 15;
-    for ($z = 17; $z >= 12; $z--) {
+    for ($z = 16; $z >= 13; $z--) {
         $wPx = abs(mercatorLon2X($maxLng, $z) - mercatorLon2X($minLng, $z));
         $hPx = abs(mercatorLat2Y($maxLat, $z) - mercatorLat2Y($minLat, $z));
-        if ($wPx <= ($width * 0.70) && $hPx <= ($height * 0.70)) {
+        if ($wPx <= ($width * 0.65) && $hPx <= ($height * 0.65)) {
             $optimalZoom = $z;
             break;
         }
     }
+    $optimalZoom = min(16, max(13, $optimalZoom));
 
     $img = imagecreatetruecolor($width, $height);
     imagealphablending($img, true);
@@ -158,26 +180,21 @@ function generateFlightAreaImageBinary(array $flight): string {
 
     for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
         for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
-            $key = "{$optimalZoom}_{$ty}_{$tx}";
-            $cachePath = "{$cacheDir}/{$key}.jpg";
+            $cacheFile = $cacheDir . "/tile_{$optimalZoom}_{$ty}_{$tx}.jpg";
+            $tileRaw = '';
 
-            $tileData = '';
-            if (file_exists($cachePath) && filesize($cachePath) > 500) {
-                $tileData = file_get_contents($cachePath);
+            if (file_exists($cacheFile) && filesize($cacheFile) > 500) {
+                $tileRaw = file_get_contents($cacheFile);
             } else {
-                $esriUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
-                $tileData = fetchTile($esriUrl);
-                if (empty($tileData)) {
-                    $osmUrl = "https://tile.openstreetmap.org/{$optimalZoom}/{$tx}/{$ty}.png";
-                    $tileData = fetchTile($osmUrl);
-                }
-                if (!empty($tileData)) {
-                    @file_put_contents($cachePath, $tileData);
+                $url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
+                $tileRaw = fetchSingleTile($url);
+                if (!empty($tileRaw)) {
+                    @file_put_contents($cacheFile, $tileRaw);
                 }
             }
 
-            if (!empty($tileData)) {
-                $tileImg = @imagecreatefromstring($tileData);
+            if (!empty($tileRaw)) {
+                $tileImg = @imagecreatefromstring($tileRaw);
                 if ($tileImg) {
                     $destX = (int)round(($tx * 256.0) - $imgMinX);
                     $destY = (int)round(($ty * 256.0) - $imgMinY);
@@ -214,7 +231,7 @@ function generateFlightAreaImageBinary(array $flight): string {
         }
     }
 
-    // Fallback vector grid if no satellite tiles downloaded
+    // If server has no internet connection, fallback to dark tactical grid
     if ($loadedSatCount === 0) {
         imagefilledrectangle($img, 0, 0, $width, $height, $bgDark);
         for ($x = 0; $x < $width; $x += 35) {
@@ -287,6 +304,9 @@ function generateFlightAreaImageBinary(array $flight): string {
     return $binary;
 }
 
+/**
+ * Fallback SVG generator with direct browser-side satellite tile links
+ */
 function generateFlightAreaSvgRaw(array $flight): string {
     $width = 584;
     $height = 320;
@@ -297,59 +317,95 @@ function generateFlightAreaSvgRaw(array $flight): string {
     $alt = htmlspecialchars((string)($flight['max_altitude'] ?? '200'));
     $airspaceClass = htmlspecialchars((string)($flight['airspace_class'] ?? 'G'));
 
-    $pointsSvg = '';
     $rawCoords = [];
+    $allLngs = [$lng];
+    $allLats = [$lat];
+
     if (!empty($flight['polygon_geojson'])) {
         $geo = @json_decode($flight['polygon_geojson'], true);
         if (!empty($geo['coordinates'][0]) && is_array($geo['coordinates'][0])) {
             $rawCoords = $geo['coordinates'][0];
+            $allLngs = array_column($rawCoords, 0);
+            $allLats = array_column($rawCoords, 1);
+        }
+    }
+
+    $minLng = min($allLngs);
+    $maxLng = max($allLngs);
+    $minLat = min($allLats);
+    $maxLat = max($allLats);
+
+    $centerLat = ($minLat + $maxLat) / 2.0;
+    $centerLng = ($minLng + $maxLng) / 2.0;
+
+    $optimalZoom = 15;
+    for ($z = 16; $z >= 13; $z--) {
+        $wPx = abs(mercatorLon2X($maxLng, $z) - mercatorLon2X($minLng, $z));
+        $hPx = abs(mercatorLat2Y($maxLat, $z) - mercatorLat2Y($minLat, $z));
+        if ($wPx <= ($width * 0.65) && $hPx <= ($height * 0.65)) {
+            $optimalZoom = $z;
+            break;
+        }
+    }
+    $optimalZoom = min(16, max(13, $optimalZoom));
+
+    $centerX = mercatorLon2X($centerLng, $optimalZoom);
+    $centerY = mercatorLat2Y($centerLat, $optimalZoom);
+    $imgMinX = $centerX - ($width / 2.0);
+    $imgMinY = $centerY - ($height / 2.0);
+
+    $tileMinX = (int)floor($imgMinX / 256.0);
+    $tileMaxX = (int)floor(($imgMinX + $width) / 256.0);
+    $tileMinY = (int)floor($imgMinY / 256.0);
+    $tileMaxY = (int)floor(($imgMinY + $height) / 256.0);
+
+    $svg = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ' . $width . ' ' . $height . '" width="' . $width . '" height="' . $height . '" style="background:#0f172a; font-family:sans-serif;">';
+    $svg .= '<rect width="' . $width . '" height="' . $height . '" fill="#0f172a"/>';
+
+    // Embed browser-accessible satellite imagery tiles directly
+    for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
+        for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
+            $destX = round(($tx * 256.0) - $imgMinX, 1);
+            $destY = round(($ty * 256.0) - $imgMinY, 1);
+            $tileUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
+            $svg .= '<image href="' . $tileUrl . '" x="' . $destX . '" y="' . $destY . '" width="256" height="256" preserveAspectRatio="none"/>';
         }
     }
 
     if (!empty($rawCoords)) {
-        $lats = array_column($rawCoords, 1);
-        $lngs = array_column($rawCoords, 0);
-        $minLat = min($lats);
-        $maxLat = max($lats);
-        $minLng = min($lngs);
-        $maxLng = max($lngs);
-
-        $spanLat = max(0.0001, $maxLat - $minLat);
-        $spanLng = max(0.0001, $maxLng - $minLng);
-
-        $svgCoords = [];
+        $svgPoints = [];
         foreach ($rawCoords as $c) {
-            $px = 60 + (($c[0] - $minLng) / $spanLng) * ($width - 120);
-            $py = ($height - 60) - (($c[1] - $minLat) / $spanLat) * ($height - 120);
-            $svgCoords[] = round($px, 1) . ',' . round($py, 1);
+            $px = round(mercatorLon2X($c[0], $optimalZoom) - $imgMinX, 1);
+            $py = round(mercatorLat2Y($c[1], $optimalZoom) - $imgMinY, 1);
+            $svgPoints[] = "{$px},{$py}";
         }
-        $pointsSvg = implode(' ', $svgCoords);
+        $svg .= '<polygon points="' . implode(' ', $svgPoints) . '" fill="rgba(0, 210, 255, 0.25)" stroke="#00d2ff" stroke-width="3" stroke-linejoin="round"/>';
     }
 
-    $cx = round($width / 2, 1);
-    $cy = round($height / 2, 1);
+    $cx = round(mercatorLon2X($lng, $optimalZoom) - $imgMinX, 1);
+    $cy = round(mercatorLat2Y($lat, $optimalZoom) - $imgMinY, 1);
 
-    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' . $width . ' ' . $height . '" width="' . $width . '" height="' . $height . '" style="background:#0f172a; font-family:sans-serif;">' .
-           '<defs>' .
-           '<pattern id="grid" width="35" height="35" patternUnits="userSpaceOnUse"><path d="M 35 0 L 0 0 0 35" fill="none" stroke="#1e293b" stroke-width="1"/></pattern>' .
-           '</defs>' .
-           '<rect width="' . $width . '" height="' . $height . '" fill="#0f172a"/>' .
-           '<rect width="' . $width . '" height="' . $height . '" fill="url(#grid)"/>' .
-           (!empty($pointsSvg) ? '<polygon points="' . $pointsSvg . '" fill="rgba(0, 210, 255, 0.25)" stroke="#00d2ff" stroke-width="3" stroke-linejoin="round"/>' : '') .
-           '<circle cx="' . $cx . '" cy="' . $cy . '" r="9" stroke="#00d2ff" stroke-width="2" fill="none"/>' .
-           '<line x1="' . ($cx - 13) . '" y1="' . $cy . '" x2="' . ($cx + 13) . '" y2="' . $cy . '" stroke="#00d2ff" stroke-width="2"/>' .
-           '<line x1="' . $cx . '" y1="' . ($cy - 13) . '" x2="' . $cx . '" y2="' . ($cy + 13) . '" stroke="#00d2ff" stroke-width="2"/>' .
-           '<circle cx="' . $cx . '" cy="' . $cy . '" r="2.5" fill="#ffffff"/>' .
-           '<rect x="10" y="10" width="310" height="42" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
-           '<text x="20" y="27" fill="#00d2ff" font-size="12" font-weight="bold">FLIGHT AREA BOUNDARY MAP</text>' .
-           '<text x="20" y="43" fill="#f8fafc" font-size="10">Footprint: ' . $acres . ' Ac | Ceiling: ' . $alt . ' ft AGL</text>' .
-           '<rect x="' . ($width - 44) . '" y="10" width="34" height="42" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
-           '<text x="' . ($width - 32) . '" y="27" fill="#ffffff" font-size="12" font-weight="bold">N</text>' .
-           '<line x1="' . ($width - 27) . '" y1="31" x2="' . ($width - 27) . '" y2="42" stroke="#00d2ff" stroke-width="2"/>' .
-           '<rect x="10" y="' . ($height - 34) . '" width="' . ($width - 20) . '" height="26" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
-           '<text x="20" y="' . ($height - 17) . '" fill="#f8fafc" font-size="10">Centroid: ' . round($lat, 6) . ', ' . round($lng, 6) . '</text>' .
-           '<text x="' . ($width - 140) . '" y="' . ($height - 17) . '" fill="' . ($airspaceClass === 'G' ? '#22c55e' : '#f59e0b') . '" font-size="10" font-weight="bold">Airspace: Class ' . $airspaceClass . '</text>' .
-           '</svg>';
+    // Crosshair
+    $svg .= '<circle cx="' . $cx . '" cy="' . $cy . '" r="9" stroke="#00d2ff" stroke-width="2" fill="none"/>';
+    $svg .= '<line x1="' . ($cx - 13) . '" y1="' . $cy . '" x2="' . ($cx + 13) . '" y2="' . $cy . '" stroke="#00d2ff" stroke-width="2"/>';
+    $svg .= '<line x1="' . $cx . '" y1="' . ($cy - 13) . '" x2="' . $cx . '" y2="' . ($cy + 13) . '" stroke="#00d2ff" stroke-width="2"/>';
+    $svg .= '<circle cx="' . $cx . '" cy="' . $cy . '" r="2.5" fill="#ffffff"/>';
+
+    // HUD overlays
+    $svg .= '<rect x="10" y="10" width="310" height="42" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>';
+    $svg .= '<text x="20" y="27" fill="#00d2ff" font-size="12" font-weight="bold">FLIGHT AREA BOUNDARY MAP</text>';
+    $svg .= '<text x="20" y="43" fill="#f8fafc" font-size="10">Footprint: ' . $acres . ' Ac | Ceiling: ' . $alt . ' ft AGL</text>';
+
+    $svg .= '<rect x="' . ($width - 44) . '" y="10" width="34" height="42" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>';
+    $svg .= '<text x="' . ($width - 32) . '" y="27" fill="#ffffff" font-size="12" font-weight="bold">N</text>';
+    $svg .= '<line x1="' . ($width - 27) . '" y1="31" x2="' . ($width - 27) . '" y2="42" stroke="#00d2ff" stroke-width="2"/>';
+
+    $svg .= '<rect x="10" y="' . ($height - 34) . '" width="' . ($width - 20) . '" height="26" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>';
+    $svg .= '<text x="20" y="' . ($height - 17) . '" fill="#f8fafc" font-size="10">Centroid: ' . round($lat, 6) . ', ' . round($lng, 6) . '</text>';
+    $svg .= '<text x="' . ($width - 140) . '" y="' . ($height - 17) . '" fill="' . ($airspaceClass === 'G' ? '#22c55e' : '#f59e0b') . '" font-size="10" font-weight="bold">Airspace: Class ' . $airspaceClass . '</text>';
+    $svg .= '</svg>';
+
+    return $svg;
 }
 
 function generateFlightAreaImageBase64(array $flight): string {
@@ -362,7 +418,7 @@ function generateFlightAreaImageBase64(array $flight): string {
 
 function buildFlightNotificationHtml(array $flight, array $recipients, ?string $imageSrc = null): string {
     if ($imageSrc === null || empty($imageSrc)) {
-        $imageSrc = "flight_map_img.php?id=" . (int)$flight['id'];
+        $imageSrc = generateFlightAreaImageBase64($flight);
     }
 
     $laancBadgeColor = (!empty($flight['laanc_auth_number']) || $flight['laanc_status'] === 'AUTO_APPROVED') ? '#16a34a' : '#d97706';
@@ -495,7 +551,7 @@ function buildFlightNotificationText(array $flight): string {
 
 function buildPostFlightReminderHtml(array $flight, array $creator, ?string $imageSrc = null): string {
     if ($imageSrc === null || empty($imageSrc)) {
-        $imageSrc = "flight_map_img.php?id=" . (int)$flight['id'];
+        $imageSrc = generateFlightAreaImageBase64($flight);
     }
 
     $localTzName = date('T');
