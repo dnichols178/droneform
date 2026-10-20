@@ -12,13 +12,11 @@ function getDB(): PDO {
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
-        // Prevent deadlocks: set a 5-second busy timeout and enable Write-Ahead Logging (WAL)
         $pdo->setAttribute(PDO::ATTR_TIMEOUT, 5);
         $pdo->exec("PRAGMA busy_timeout = 5000;");
         $pdo->exec("PRAGMA journal_mode = WAL;");
         $pdo->exec("PRAGMA foreign_keys = ON;");
 
-        // Inspect sqlite_master for base tables
         $tablesExist = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users'")->fetchColumn();
 
         if (!$tablesExist) {
@@ -27,7 +25,6 @@ function getDB(): PDO {
             migrateSchema($pdo);
         }
 
-        // Apply saved system timezone safely within the single existing PDO handle
         try {
             $tz = $pdo->query("SELECT setting_value FROM system_settings WHERE setting_key = 'app_timezone'")->fetchColumn();
             if (!empty($tz)) {
@@ -41,7 +38,7 @@ function getDB(): PDO {
 }
 
 function initSchema(PDO $pdo): void {
-    // 1. Users Table (Part 107 cert number removed per Requirement 6)
+    // 1. Users Table
     $pdo->exec("CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
@@ -68,7 +65,7 @@ function initSchema(PDO $pdo): void {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );");
 
-    // 3. Prepopulated Drones Table (Requirement 5)
+    // 3. Prepopulated Drones Table
     $pdo->exec("CREATE TABLE IF NOT EXISTS drones (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         model_name TEXT NOT NULL,
@@ -77,7 +74,7 @@ function initSchema(PDO $pdo): void {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );");
 
-    // 4. Flights Table (Added payload, faa_reg_number, and faa_reg_expiration)
+    // 4. Flights Table
     $pdo->exec("CREATE TABLE IF NOT EXISTS flights (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         flight_number TEXT UNIQUE NOT NULL,
@@ -97,6 +94,7 @@ function initSchema(PDO $pdo): void {
         payload TEXT,
         faa_reg_number TEXT,
         faa_reg_expiration DATE,
+        map_image_base64 TEXT,
         airspace_class TEXT NOT NULL DEFAULT 'G',
         laanc_required INTEGER DEFAULT 0,
         laanc_status TEXT NOT NULL DEFAULT 'PENDING',
@@ -167,28 +165,25 @@ function initSchema(PDO $pdo): void {
         FOREIGN KEY (user_id) REFERENCES users(id)
     );");
 
-    // Seed default admin account
     $defaultAdminPass = password_hash('Admin@107', PASSWORD_DEFAULT);
     $pdo->prepare("INSERT OR IGNORE INTO users (username, password_hash, full_name, email, phone, role)
                    VALUES ('admin', ?, 'Chief Remote Pilot', 'admin@uas-ops.local', '555-0107', 'admin')")
         ->execute([$defaultAdminPass]);
 
-    // Seed default procedural recipients
     $pdo->exec("INSERT OR IGNORE INTO distribution_recipients (full_name, email, organization) VALUES
                 ('Security Operations Center', 'soc@site-security.local', 'Facility Protective Force'),
                 ('Aviation Safety Officer', 'safety@uas-ops.local', 'Airspace & Safety Management');");
 
-    // Seed default SMTP & sender settings
     $defaultSettings = [
-        'smtp_host'    => '127.0.0.1',
-        'smtp_port'    => '25',
-        'smtp_auth'    => '0',
-        'smtp_user'    => '',
-        'smtp_pass'    => '',
-        'smtp_secure'  => 'none',
-        'mail_from'    => 'flight-ops@uas-part107.com',
+        'smtp_host'     => '127.0.0.1',
+        'smtp_port'     => '25',
+        'smtp_auth'     => '0',
+        'smtp_user'     => '',
+        'smtp_pass'     => '',
+        'smtp_secure'   => 'none',
+        'mail_from'     => 'flight-ops@uas-part107.com',
         'mail_from_name'=> 'FAA Part 107 Flight Operations',
-        'app_timezone' => 'America/Chicago'
+        'app_timezone'  => 'America/Chicago'
     ];
     $stmt = $pdo->prepare("INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
     foreach ($defaultSettings as $k => $v) {
@@ -197,7 +192,6 @@ function initSchema(PDO $pdo): void {
 }
 
 function migrateSchema(PDO $pdo): void {
-    // Ensure drones table exists (Requirement 5)
     $pdo->exec("CREATE TABLE IF NOT EXISTS drones (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         model_name TEXT NOT NULL,
@@ -230,15 +224,15 @@ function migrateSchema(PDO $pdo): void {
     );");
 
     $defaultSettings = [
-        'smtp_host'    => '127.0.0.1',
-        'smtp_port'    => '25',
-        'smtp_auth'    => '0',
-        'smtp_user'    => '',
-        'smtp_pass'    => '',
-        'smtp_secure'  => 'none',
-        'mail_from'    => 'flight-ops@uas-part107.com',
+        'smtp_host'     => '127.0.0.1',
+        'smtp_port'     => '25',
+        'smtp_auth'     => '0',
+        'smtp_user'     => '',
+        'smtp_pass'     => '',
+        'smtp_secure'   => 'none',
+        'mail_from'     => 'flight-ops@uas-part107.com',
         'mail_from_name'=> 'FAA Part 107 Flight Operations',
-        'app_timezone' => 'America/Chicago'
+        'app_timezone'  => 'America/Chicago'
     ];
     $stmt = $pdo->prepare("INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
     foreach ($defaultSettings as $k => $v) {
@@ -259,23 +253,21 @@ function migrateSchema(PDO $pdo): void {
         if (!in_array('reminder_sent_at', $flightCols, true)) {
             $pdo->exec("ALTER TABLE flights ADD COLUMN reminder_sent_at DATETIME");
         }
-        // Requirement 4: Payload column
         if (!in_array('payload', $flightCols, true)) {
             $pdo->exec("ALTER TABLE flights ADD COLUMN payload TEXT");
         }
-        // Requirement 5: FAA registration columns on flight records
         if (!in_array('faa_reg_number', $flightCols, true)) {
             $pdo->exec("ALTER TABLE flights ADD COLUMN faa_reg_number TEXT");
         }
         if (!in_array('faa_reg_expiration', $flightCols, true)) {
             $pdo->exec("ALTER TABLE flights ADD COLUMN faa_reg_expiration DATE");
         }
+        if (!in_array('map_image_base64', $flightCols, true)) {
+            $pdo->exec("ALTER TABLE flights ADD COLUMN map_image_base64 TEXT");
+        }
     }
 }
 
-/**
- * Global Error Logging Utility
- */
 function logSystemError(string $type, string $message, ?string $details = null, ?int $userId = null): void {
     try {
         $pdo = getDB();
@@ -286,7 +278,6 @@ function logSystemError(string $type, string $message, ?string $details = null, 
         $stmt = $pdo->prepare("INSERT INTO error_logs (error_type, message, details, user_id, created_at) VALUES (?, ?, ?, ?, ?)");
         $stmt->execute([strtoupper(trim($type)), trim($message), $details ? trim($details) : null, $userId, $localNow]);
     } catch (Exception $e) {
-        // Fallback to PHP native log if database write fails
         error_log("[{$type}] {$message} | Details: " . ($details ?? 'None'));
     }
 }
