@@ -46,6 +46,9 @@ function mercatorLat2Y(float $lat, int $zoom): float {
     return (1.0 - (log(tan($latRad) + (1.0 / cos($latRad))) / M_PI)) / 2.0 * (256 * (1 << $zoom));
 }
 
+/**
+ * Downloads a single web tile safely with browser-grade headers and IPv4 resolving
+ */
 function fetchSingleTile(string $url): string {
     if (function_exists('curl_init')) {
         $ch = curl_init();
@@ -62,7 +65,7 @@ function fetchSingleTile(string $url): string {
             CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             CURLOPT_HTTPHEADER     => [
                 'Accept: image/jpeg,image/png,image/*;q=0.8',
-                'Referer: https://www.arcgis.com/'
+                'Referer: https://basemap.nationalmap.gov/'
             ]
         ];
 
@@ -85,7 +88,7 @@ function fetchSingleTile(string $url): string {
         $ctx = stream_context_create([
             'http' => [
                 'timeout' => 4,
-                'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nReferer: https://www.arcgis.com/\r\n"
+                'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nReferer: https://basemap.nationalmap.gov/\r\n"
             ],
             'ssl' => [
                 'verify_peer'      => false,
@@ -101,12 +104,20 @@ function fetchSingleTile(string $url): string {
     return '';
 }
 
+/**
+ * Generates raw image binary of 90° top-down orthorectified satellite imagery stitched with flight boundary & telemetry
+ */
 function generateFlightAreaImageBinary(array $flight): string {
-    // If base64 snapshot already exists, decode directly into raw PNG binary
-    if (!empty($flight['map_image_base64']) && str_starts_with($flight['map_image_base64'], 'data:image')) {
-        $parts = explode(',', $flight['map_image_base64'], 2);
-        if (!empty($parts[1])) {
-            return base64_decode($parts[1]);
+    // If client-side snapshot exists, decode directly into binary
+    if (!empty($flight['map_image_base64'])) {
+        $raw = trim($flight['map_image_base64']);
+        if (str_starts_with($raw, 'data:image')) {
+            $parts = explode(',', $raw, 2);
+            $raw = $parts[1] ?? '';
+        }
+        $decoded = base64_decode($raw);
+        if (!empty($decoded) && strlen($decoded) > 500) {
+            return $decoded;
         }
     }
 
@@ -141,6 +152,7 @@ function generateFlightAreaImageBinary(array $flight): string {
     $centerLat = ($minLat + $maxLat) / 2.0;
     $centerLng = ($minLng + $maxLng) / 2.0;
 
+    // Zoom level 14-16 for sharp, top-down ortho resolution
     $optimalZoom = 15;
     for ($z = 16; $z >= 13; $z--) {
         $wPx = abs(mercatorLon2X($maxLng, $z) - mercatorLon2X($minLng, $z));
@@ -187,18 +199,23 @@ function generateFlightAreaImageBinary(array $flight): string {
 
     for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
         for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
-            $cacheFile = $cacheDir . "/tile_{$optimalZoom}_{$ty}_{$tx}.jpg";
+            // New cache namespace ensures previously cached angled/hybrid tiles are replaced
+            $cacheFile = $cacheDir . "/tile_ortho_{$optimalZoom}_{$ty}_{$tx}.jpg";
             $tileRaw = '';
 
             if (file_exists($cacheFile) && filesize($cacheFile) > 500) {
                 $tileRaw = file_get_contents($cacheFile);
             } else {
-                $url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
-                $tileRaw = fetchSingleTile($url);
+                // Primary: USGS National Map Orthoimagery (strictly 90° flat orthogonal perspective)
+                $usgsUrl = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
+                $tileRaw = fetchSingleTile($usgsUrl);
+
+                // Fallback: ESRI World Imagery
                 if (empty($tileRaw)) {
-                    $osmUrl = "https://tile.openstreetmap.org/{$optimalZoom}/{$tx}/{$ty}.png";
-                    $tileRaw = fetchSingleTile($osmUrl);
+                    $esriUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
+                    $tileRaw = fetchSingleTile($esriUrl);
                 }
+
                 if (!empty($tileRaw)) {
                     @file_put_contents($cacheFile, $tileRaw);
                 }
@@ -242,6 +259,7 @@ function generateFlightAreaImageBinary(array $flight): string {
         }
     }
 
+    // Fallback tactical grid if server cannot connect to external imagery
     if ($loadedSatCount === 0) {
         imagefilledrectangle($img, 0, 0, $width, $height, $bgDark);
         for ($x = 0; $x < $width; $x += 35) {
@@ -315,8 +333,12 @@ function generateFlightAreaImageBinary(array $flight): string {
 }
 
 function generateFlightAreaImageBase64(array $flight): string {
-    if (!empty($flight['map_image_base64']) && str_starts_with($flight['map_image_base64'], 'data:image')) {
-        return $flight['map_image_base64'];
+    if (!empty($flight['map_image_base64'])) {
+        $raw = trim($flight['map_image_base64']);
+        if (str_starts_with($raw, 'data:image')) {
+            return $raw;
+        }
+        return 'data:image/jpeg;base64,' . $raw;
     }
 
     $binary = generateFlightAreaImageBinary($flight);
@@ -367,7 +389,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     }
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
-    // Embedded Flight Map
+    // Embedded Top-Down Satellite Map
     $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0f172a" style="background-color: #0f172a; border-radius: 6px; overflow: hidden; border: 1px solid #334155;">' . "\r\n";
     $html .= '                <tr><td align="center" style="padding: 0; background-color: #090d16;">' . "\r\n";
