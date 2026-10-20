@@ -14,18 +14,29 @@ $pdo = getDB();
 $msg = '';
 $err = '';
 
+// Ensure drones table exists for fleet management
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS drones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        model_name TEXT NOT NULL,
+        faa_reg_number TEXT NOT NULL,
+        faa_reg_expiration DATE NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+");
+
 // 1. Handle SMTP & Timezone Settings Update
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_smtp') {
     $settingsToSave = [
-        'smtp_host'    => trim($_POST['smtp_host'] ?? ''),
-        'smtp_port'    => trim($_POST['smtp_port'] ?? '25'),
-        'smtp_auth'    => isset($_POST['smtp_auth']) ? '1' : '0',
-        'smtp_user'    => trim($_POST['smtp_user'] ?? ''),
-        'smtp_pass'    => trim($_POST['smtp_pass'] ?? ''),
-        'smtp_secure'  => $_POST['smtp_secure'] ?? 'none',
-        'mail_from'    => trim($_POST['mail_from'] ?? ''),
+        'smtp_host'     => trim($_POST['smtp_host'] ?? ''),
+        'smtp_port'     => trim($_POST['smtp_port'] ?? '25'),
+        'smtp_auth'     => isset($_POST['smtp_auth']) ? '1' : '0',
+        'smtp_user'     => trim($_POST['smtp_user'] ?? ''),
+        'smtp_pass'     => trim($_POST['smtp_pass'] ?? ''),
+        'smtp_secure'   => $_POST['smtp_secure'] ?? 'none',
+        'mail_from'     => trim($_POST['mail_from'] ?? ''),
         'mail_from_name'=> trim($_POST['mail_from_name'] ?? ''),
-        'app_timezone' => trim($_POST['app_timezone'] ?? 'America/Chicago')
+        'app_timezone'  => trim($_POST['app_timezone'] ?? 'America/Chicago')
     ];
 
     $stmt = $pdo->prepare("INSERT OR REPLACE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
@@ -43,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $err = "Please enter a valid email address for the test.";
     } else {
         $testSubject = "FRNP Drone Flight Management System SMTP Test Connection";
-        $testBody = "This is a test notification verifying the SMTP relay settings on the FRNP Drone Flight Management System .\r\n" .
+        $testBody = "This is a test notification verifying the SMTP relay settings on the FRNP Drone Flight Management System.\r\n" .
                     "Local Timestamp: " . date('Y-m-d H:i:s T') . "\r\n" .
                     "Host: " . getSystemSetting('smtp_host') . ":" . getSystemSetting('smtp_port') . "\r\n";
         $testError = null;
@@ -85,7 +96,35 @@ if (isset($_GET['delete_recipient'])) {
     $delId = (int)$_GET['delete_recipient'];
     $stmt = $pdo->prepare("DELETE FROM distribution_recipients WHERE id = ?");
     $stmt->execute([$delId]);
-    header('Location: settings.php?deleted=1');
+    header('Location: settings.php?msg=recipient_deleted');
+    exit;
+}
+
+// 6. Handle Add Prepopulated Drone Model (Requirement 5)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_drone') {
+    $modelName = trim($_POST['drone_model_name'] ?? '');
+    $faaReg = trim($_POST['drone_faa_reg'] ?? '');
+    $faaExp = trim($_POST['drone_faa_exp'] ?? '');
+
+    if (!empty($modelName) && !empty($faaReg) && !empty($faaExp)) {
+        try {
+            $stmt = $pdo->prepare("INSERT INTO drones (model_name, faa_reg_number, faa_reg_expiration) VALUES (?, ?, ?)");
+            $stmt->execute([$modelName, $faaReg, $faaExp]);
+            $msg = "Aircraft '{$modelName}' added to prepopulated fleet list.";
+        } catch (PDOException $e) {
+            $err = "Failed to add drone: " . $e->getMessage();
+        }
+    } else {
+        $err = "Please enter Drone Model Name, FAA Registration #, and Expiration Date.";
+    }
+}
+
+// 7. Handle Delete Prepopulated Drone Model
+if (isset($_GET['delete_drone'])) {
+    $delDroneId = (int)$_GET['delete_drone'];
+    $stmt = $pdo->prepare("DELETE FROM drones WHERE id = ?");
+    $stmt->execute([$delDroneId]);
+    header('Location: settings.php?msg=drone_deleted');
     exit;
 }
 
@@ -101,15 +140,92 @@ $mailFromName = getSystemSetting('mail_from_name', 'FAA Part 107 Flight Operatio
 $currentTimezone = getSystemSetting('app_timezone', 'America/Chicago');
 
 $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC")->fetchAll();
+$drones = $pdo->query("SELECT * FROM drones ORDER BY model_name ASC")->fetchAll();
+
+if (isset($_GET['msg'])) {
+    if ($_GET['msg'] === 'recipient_deleted') $msg = "Recipient removed from distribution list.";
+    if ($_GET['msg'] === 'drone_deleted') $msg = "Drone removed from prepopulated fleet.";
+}
 ?>
 
-<?php if (isset($_GET['deleted'])): ?><div class="alert alert-success">Recipient removed from distribution list.</div><?php endif; ?>
 <?php if ($msg): ?><div class="alert alert-success"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
 <?php if ($err): ?><div class="alert alert-danger"><?= htmlspecialchars($err) ?></div><?php endif; ?>
 
 <div class="user-admin-split" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; width: 100%;">
-    <!-- LEFT COLUMN: MANDATORY DISTRIBUTION LIST & MANUAL REMINDERS -->
-    <div style="min-width: 0;">
+    <!-- LEFT COLUMN: PREPOPULATED DRONES & MANDATORY RECIPIENTS -->
+    <div style="min-width: 0; display: flex; flex-direction: column; gap: 1.5rem;">
+        <!-- PREPOPULATED DRONE FLEET MANAGEMENT (Requirement 5) -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Prepopulated Drone Fleet</h2>
+                <span class="badge badge-neutral"><?= count($drones) ?> Aircraft</span>
+            </div>
+            <div class="card-body">
+                <p class="form-hint" style="margin-bottom: 1.25rem;">
+                    Manage preconfigured aircraft available in the flight scheduler. Includes model name, FAA registration number, and FAA expiration date.
+                </p>
+
+                <div class="table-responsive" style="margin-bottom: 1.5rem;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Model Name</th>
+                                <th>FAA Reg #</th>
+                                <th>Reg. Expiration</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($drones)): ?>
+                                <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No prepopulated drones registered. Use the form below to add one.</td></tr>
+                            <?php else: foreach ($drones as $d): ?>
+                                <tr>
+                                    <td><strong><?= htmlspecialchars($d['model_name']) ?></strong></td>
+                                    <td><code style="font-size: 0.85rem;"><?= htmlspecialchars($d['faa_reg_number']) ?></code></td>
+                                    <td><?= htmlspecialchars($d['faa_reg_expiration']) ?></td>
+                                    <td>
+                                        <a href="settings.php?delete_drone=<?= $d['id'] ?>" 
+                                           class="btn btn-outline btn-sm" 
+                                           style="color: var(--danger); border-color: var(--border);"
+                                           onclick="return confirm('Remove <?= htmlspecialchars(addslashes($d['model_name'])) ?> from the prepopulated fleet?');">
+                                            Remove
+                                        </a>
+                                    </td>
+                                </tr>
+                            <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="card" style="border: 1px solid var(--border-light); background: #f8fafc;">
+                    <div class="card-header" style="background: transparent;">
+                        <span class="card-title" style="font-size: 1rem;">Add Prepopulated Drone</span>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="settings.php">
+                            <input type="hidden" name="action" value="add_drone">
+                            <div class="form-group">
+                                <label for="drone_model_name">Drone Make &amp; Model</label>
+                                <input type="text" name="drone_model_name" id="drone_model_name" class="form-control" placeholder="e.g. Skydio X10D, DJI Matrice 350 RTK" required>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                                <div class="form-group">
+                                    <label for="drone_faa_reg">FAA Registration #</label>
+                                    <input type="text" name="drone_faa_reg" id="drone_faa_reg" class="form-control" placeholder="FA3XXXXXXXXX" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="drone_faa_exp">Registration Expiration Date</label>
+                                    <input type="date" name="drone_faa_exp" id="drone_faa_exp" class="form-control" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm">Add Drone to Fleet</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MANDATORY DISTRIBUTION LIST -->
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Mandatory Distribution List</h2>
@@ -117,7 +233,7 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
             </div>
             <div class="card-body">
                 <p class="form-hint" style="margin-bottom: 1.25rem;">
-                    These contacts are required by flight procedures. They automatically receive official flight plan notifications once LAANC authorization is recorded.
+                    These contacts automatically receive official flight plan notifications once LAANC authorization is recorded.
                 </p>
                 <div class="table-responsive" style="margin-bottom: 1.5rem;">
                     <table class="table">
@@ -139,8 +255,8 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                                     <td><small style="color:var(--text-muted);"><?= htmlspecialchars($r['organization'] ?: 'Standard') ?></small></td>
                                     <td>
                                         <a href="settings.php?delete_recipient=<?= $r['id'] ?>" 
-                                            class="btn btn-outline btn-sm" 
-                                            style="color: var(--danger); border-color: var(--border);"
+                                           class="btn btn-outline btn-sm" 
+                                           style="color: var(--danger); border-color: var(--border);"
                                            onclick="return confirm('Remove this mandatory contact from future flight dispatches?');">
                                             Remove
                                         </a>
@@ -179,7 +295,7 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                     <div class="card-header"><h3 class="card-title" style="font-size: 1rem;">Post-Flight Log Reminder Trigger</h3></div>
                     <div class="card-body">
                         <p class="form-hint" style="margin-bottom: 0.75rem;">
-                            Reminders are automatically dispatched periodically. Click below to immediately trigger an audit scan for overdue logs (> 1 day post-flight).
+                            Click below to immediately trigger an audit scan for overdue logs (&gt; 1 day post-flight).
                         </p>
                         <form method="POST" action="settings.php">
                             <input type="hidden" name="action" value="run_reminders">
@@ -189,24 +305,10 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                 </div>
             </div>
         </div>
-    <div style="min-width: 0;">
-        <div class="card">
-            <div class="card-header">
-                <h2 class="card-title">Error Log</h2>
-            </div>
-            <div class="card-body">
-                <div>
-                    <a style="width: 100%" class="btn btn-primary" href="errors.php">View Log</a>
-                </div>
-                </div>
-            </div>
     </div>
-        </div>
 
-    
-
-    <!-- RIGHT COLUMN: SERVER SMTP CONFIGURATION & TIMEZONE -->
-    <div style="min-width: 0;">
+    <!-- RIGHT COLUMN: SERVER SMTP CONFIGURATION, TIMEZONE & ERROR LOG -->
+    <div style="min-width: 0; display: flex; flex-direction: column; gap: 1.5rem;">
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">System Timezone &amp; SMTP Configuration</h2>
@@ -241,7 +343,7 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                         <div class="form-hint">All flight records, clearance stamps, and email dispatches use this timezone.</div>
                     </div>
 
-                    <div class="grid grid-cols-2">
+                    <div class="grid grid-cols-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                         <div class="form-group">
                             <label for="smtp_host">SMTP Host or Server IP</label>
                             <input type="text" name="smtp_host" id="smtp_host" class="form-control" value="<?= htmlspecialchars($smtpHost) ?>" placeholder="e.g. 10.0.0.25 or mail.domain.com" required>
@@ -270,7 +372,7 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                         </label>
                         <div class="form-hint" style="margin-left: 1.5rem;">Check if the relay requires a username and password.</div>
 
-                        <div id="smtp-auth-fields" class="grid grid-cols-2" style="margin-top: 0.75rem; display: <?= $smtpAuth ? 'grid' : 'none' ?>;">
+                        <div id="smtp-auth-fields" style="margin-top: 0.75rem; display: <?= $smtpAuth ? 'grid' : 'none' ?>; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                             <div class="form-group">
                                 <label for="smtp_user">SMTP Username</label>
                                 <input type="text" name="smtp_user" id="smtp_user" class="form-control" value="<?= htmlspecialchars($smtpUser) ?>">
@@ -282,7 +384,7 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-2" style="margin-top: 1rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 1rem;">
                         <div class="form-group">
                             <label for="mail_from">Default "From" Email Address</label>
                             <input type="email" name="mail_from" id="mail_from" class="form-control" value="<?= htmlspecialchars($mailFrom) ?>" required>
@@ -306,6 +408,15 @@ $recipients = $pdo->query("SELECT * FROM distribution_recipients ORDER BY id ASC
                         <button type="submit" class="btn btn-outline btn-sm" style="white-space: nowrap;">Send Test Email</button>
                     </form>
                 </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">System Error Log</h2>
+            </div>
+            <div class="card-body">
+                <a style="width: 100%" class="btn btn-primary" href="errors.php">View Error Log</a>
             </div>
         </div>
     </div>
