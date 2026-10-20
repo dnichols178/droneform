@@ -46,9 +46,6 @@ function mercatorLat2Y(float $lat, int $zoom): float {
     return (1.0 - (log(tan($latRad) + (1.0 / cos($latRad))) / M_PI)) / 2.0 * (256 * (1 << $zoom));
 }
 
-/**
- * Downloads a single web tile safely with browser-grade headers and IPv4 resolving
- */
 function fetchSingleTile(string $url): string {
     if (function_exists('curl_init')) {
         $ch = curl_init();
@@ -57,14 +54,15 @@ function fetchSingleTile(string $url): string {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
-            CURLOPT_CONNECTTIMEOUT => 2,
-            CURLOPT_TIMEOUT        => 3,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT        => 4,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => 0,
             CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
             CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             CURLOPT_HTTPHEADER     => [
-                'Accept: image/jpeg,image/png,image/webp,*/*;q=0.8'
+                'Accept: image/jpeg,image/png,image/*;q=0.8',
+                'Referer: https://clarity.maptiles.arcgis.com/'
             ]
         ];
 
@@ -86,8 +84,8 @@ function fetchSingleTile(string $url): string {
     if (ini_get('allow_url_fopen')) {
         $ctx = stream_context_create([
             'http' => [
-                'timeout' => 3,
-                'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
+                'timeout' => 4,
+                'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nReferer: https://clarity.maptiles.arcgis.com/\r\n"
             ],
             'ssl' => [
                 'verify_peer'      => false,
@@ -103,11 +101,7 @@ function fetchSingleTile(string $url): string {
     return '';
 }
 
-/**
- * Generates raw PNG binary of 90° top-down nadir satellite imagery stitched with flight boundary & telemetry
- */
 function generateFlightAreaImageBinary(array $flight): string {
-    // If a valid client-captured base64 snapshot exists in DB, decode it directly
     if (!empty($flight['map_image_base64'])) {
         $clean = preg_replace('#^data:image/[^;]+;base64,#i', '', trim($flight['map_image_base64']));
         if (strlen($clean) > 200) {
@@ -195,17 +189,16 @@ function generateFlightAreaImageBinary(array $flight): string {
 
     for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
         for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
-            $cacheFile = $cacheDir . "/topdown_{$optimalZoom}_{$ty}_{$tx}.jpg";
+            $cacheFile = $cacheDir . "/clarity_{$optimalZoom}_{$ty}_{$tx}.jpg";
             $tileRaw = '';
 
             if (file_exists($cacheFile) && filesize($cacheFile) > 500) {
                 $tileRaw = file_get_contents($cacheFile);
             } else {
-                // Primary: 90° top-down nadir satellite tiles (Google Satellite layer, zoom 0-20)
-                $tileUrl = "https://mt1.google.com/vt/lyrs=s&x={$tx}&y={$ty}&z={$optimalZoom}";
+                // Top-down nadir Clarity Satellite layer
+                $tileUrl = "https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
                 $tileRaw = fetchSingleTile($tileUrl);
 
-                // Secondary fallback: Esri World Imagery
                 if (empty($tileRaw)) {
                     $tileUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
                     $tileRaw = fetchSingleTile($tileUrl);
@@ -254,7 +247,6 @@ function generateFlightAreaImageBinary(array $flight): string {
         }
     }
 
-    // Fallback tactical grid background if network tiles are unreachable
     if ($loadedSatCount === 0) {
         imagefilledrectangle($img, 0, 0, $width, $height, $bgDark);
         for ($x = 0; $x < $width; $x += 35) {
@@ -327,9 +319,6 @@ function generateFlightAreaImageBinary(array $flight): string {
     return $binary;
 }
 
-/**
- * Fallback standalone SVG generator ensuring images always render even on completely offline servers
- */
 function generateFlightAreaSvgRaw(array $flight): string {
     $width = 584;
     $height = 320;
@@ -386,7 +375,7 @@ function generateFlightAreaSvgRaw(array $flight): string {
            '<text x="20" y="43" fill="#f8fafc" font-size="10">Footprint: ' . $acres . ' Ac | Ceiling: ' . $alt . ' ft AGL</text>' .
            '<rect x="' . ($width - 44) . '" y="10" width="34" height="42" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
            '<text x="' . ($width - 32) . '" y="27" fill="#ffffff" font-size="12" font-weight="bold">N</text>' .
-           '<line x1="' . ($width - 27) . '" y1="' . 31 . '" x2="' . ($width - 27) . '" y2="42" stroke="#00d2ff" stroke-width="2"/>' .
+           '<line x1="' . ($width - 27) . '" y1="' . 31 . '" x2="' . ($width - 27) . '" y2="' . 42 . '" stroke="#00d2ff" stroke-width="2"/>' .
            '<rect x="10" y="' . ($height - 34) . '" width="' . ($width - 20) . '" height="26" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
            '<text x="20" y="' . ($height - 17) . '" fill="#f8fafc" font-size="10">Centroid: ' . round($lat, 6) . ', ' . round($lng, 6) . '</text>' .
            '<text x="' . ($width - 140) . '" y="' . ($height - 17) . '" fill="' . ($airspaceClass === 'G' ? '#22c55e' : '#f59e0b') . '" font-size="10" font-weight="bold">Airspace: Class ' . $airspaceClass . '</text>' .
@@ -394,7 +383,6 @@ function generateFlightAreaSvgRaw(array $flight): string {
 }
 
 function generateFlightAreaImageBase64(array $flight): string {
-    // 1. If valid captured snapshot is stored in DB (must be > 200 chars to avoid broken empty headers)
     if (!empty($flight['map_image_base64'])) {
         $clean = preg_replace('#^data:image/[^;]+;base64,#i', '', trim($flight['map_image_base64']));
         if (strlen($clean) > 200) {
@@ -402,13 +390,11 @@ function generateFlightAreaImageBase64(array $flight): string {
         }
     }
 
-    // 2. Generate stitched PNG using top-down nadir tiles
     $binary = generateFlightAreaImageBinary($flight);
     if (!empty($binary) && strlen($binary) > 200) {
         return 'data:image/png;base64,' . base64_encode($binary);
     }
 
-    // 3. Fallback guaranteed vector SVG
     return 'data:image/svg+xml;base64,' . base64_encode(generateFlightAreaSvgRaw($flight));
 }
 
