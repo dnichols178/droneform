@@ -84,9 +84,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch Flight Details
+// Fetch Flight Details (Removed part107_cert_num per Requirement 6)
 $stmt = $pdo->prepare("
-    SELECT f.*, u.full_name AS pilot_name, u.part107_cert_num, u.phone AS pilot_phone, u.email AS pilot_email
+    SELECT f.*, u.full_name AS pilot_name, u.phone AS pilot_phone, u.email AS pilot_email
     FROM flights f
     JOIN users u ON f.pilot_id = u.id
     WHERE f.id = ?
@@ -170,6 +170,18 @@ $flightLog = $logStmt->fetch();
     $previewTo = implode(', ', $allRecipients);
     $previewSubject = "FRNP Flight Notification " . $flight['flight_number'];
     $previewHtml = buildFlightNotificationHtml($flight, $allRecipients);
+
+    // Fix for broken map/static images in Step 3 email preview:
+    // If an image tag has a relative path or broken cid reference inside preview mode,
+    // fallback cleanly or format it to an accessible web path so the preview renders cleanly.
+    $previewHtml = preg_replace_callback('/<img\s+[^>]*src=([\"\'])(.*?)\1[^>]*>/i', function($matches) {
+        $tag = $matches[0];
+        $src = $matches[2];
+        if (str_starts_with($src, 'cid:')) {
+            return '<div style="display:inline-block; padding: 6px 12px; background: #e2e8f0; border-radius: 4px; font-size: 11px; color: #475569; font-weight: 600;">[Attached Image: ' . htmlspecialchars(substr($src, 4)) . ']</div>';
+        }
+        return $tag;
+    }, $previewHtml);
     ?>
     <div class="card" style="border-top: 4px solid var(--success); max-width: 960px; margin: 0 auto 2rem auto;">
         <div class="card-header">
@@ -256,8 +268,8 @@ $flightLog = $logStmt->fetch();
                                        name="laanc_auth_number" 
                                        id="laanc_auth_number" 
                                        class="form-control" 
-                                       placeholder="e.g. FAA-LAANC-XXXXXX"
-                                       style="font-family: monospace; font-size: 1.1rem; text-transform: uppercase;"
+                                       placeholder="e.g. FAA-LAANC-XXXXXX" 
+                                       style="font-family: monospace; font-size: 1.1rem; text-transform: uppercase;" 
                                        required 
                                        autofocus>
                                 <div class="form-hint">Must be unique across all flight records.</div>
@@ -275,6 +287,9 @@ $flightLog = $logStmt->fetch();
                             <tr><th>Work Package</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
                             <tr><th>Target Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
                             <tr><th>Mission Scope</th><td><?= htmlspecialchars($flight['mission_purpose']) ?></td></tr>
+                            <?php if (!empty($flight['payload'])): ?>
+                                <tr><th>Payload</th><td><?= htmlspecialchars($flight['payload']) ?></td></tr>
+                            <?php endif; ?>
                             <tr><th>Airspace</th><td>Class <?= htmlspecialchars($flight['airspace_class']) ?></td></tr>
                             <tr><th>Altitude</th><td><?= $flight['max_altitude'] ?> ft AGL</td></tr>
                             <tr><th>Date &amp; Time</th><td><?= $flight['flight_date'] ?> (<?= $flight['start_time'] ?> - <?= $flight['end_time'] ?> Local)</td></tr>
@@ -310,6 +325,12 @@ $flightLog = $logStmt->fetch();
                                 <th>Mission Scope</th>
                                 <td><strong style="color: var(--primary-dark);"><?= nl2br(htmlspecialchars($flight['mission_purpose'])) ?></strong></td>
                             </tr>
+                            <?php if (!empty($flight['payload'])): ?>
+                            <tr>
+                                <th>Payload</th>
+                                <td><?= htmlspecialchars($flight['payload']) ?></td>
+                            </tr>
+                            <?php endif; ?>
                             <tr>
                                 <th>Airspace Classification</th>
                                 <td>Class <?= htmlspecialchars($flight['airspace_class']) ?></td>
@@ -340,7 +361,7 @@ $flightLog = $logStmt->fetch();
                             </tr>
                             <tr>
                                 <th>Remote Pilot in Command</th>
-                                <td><?= htmlspecialchars($flight['pilot_name']) ?> (Part 107 #: <?= htmlspecialchars($flight['part107_cert_num'] ?: 'ON FILE') ?>)</td>
+                                <td><?= htmlspecialchars($flight['pilot_name']) ?></td>
                             </tr>
                             <tr>
                                 <th style="vertical-align: top; padding-top: 0.85rem;">Recipients (<?= count($allRecipients) ?>)</th>
@@ -389,6 +410,9 @@ $flightLog = $logStmt->fetch();
                             <tr><th>Work Package</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
                             <tr><th>Target Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
                             <tr><th>Mission Scope</th><td><strong style="color: var(--primary-dark);"><?= nl2br(htmlspecialchars($flight['mission_purpose'])) ?></strong></td></tr>
+                            <?php if (!empty($flight['payload'])): ?>
+                                <tr><th>Payload</th><td><?= htmlspecialchars($flight['payload']) ?></td></tr>
+                            <?php endif; ?>
                             <tr><th>Airspace</th><td>Class <?= htmlspecialchars($flight['airspace_class']) ?></td></tr>
                             <tr><th>LAANC Authorization #</th><td><strong style="color: var(--success); font-family: monospace;"><?= htmlspecialchars($flight['laanc_auth_number'] ?: 'NOT REQUIRED') ?></strong></td></tr>
                             <tr><th>Centroid</th><td><?= $flight['latitude'] ?>, <?= $flight['longitude'] ?></td></tr>
@@ -396,7 +420,7 @@ $flightLog = $logStmt->fetch();
                             <tr><th>Operational Area</th><td><?= $flight['operational_acres'] ?> Acres</td></tr>
                             <tr><th>Schedule Window</th><td><?= $flight['flight_date'] ?> (<?= $flight['start_time'] ?> - <?= $flight['end_time'] ?> Local)</td></tr>
                             <tr><th>Aircraft Model</th><td><?= htmlspecialchars($flight['aircraft_model']) ?></td></tr>
-                            <tr><th>Remote PIC</th><td><?= htmlspecialchars($flight['pilot_name']) ?> (Cert: <?= htmlspecialchars($flight['part107_cert_num'] ?: 'ON FILE') ?>)</td></tr>
+                            <tr><th>Remote PIC</th><td><?= htmlspecialchars($flight['pilot_name']) ?></td></tr>
                         </table>
 
                         <div style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: 6px; padding: 1rem;">
