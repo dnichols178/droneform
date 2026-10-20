@@ -169,19 +169,9 @@ $flightLog = $logStmt->fetch();
     $previewFrom = "FRNP Drone Flight Operations" . " <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
     $previewTo = implode(', ', $allRecipients);
     $previewSubject = "FRNP Flight Notification " . $flight['flight_number'];
-    $previewHtml = buildFlightNotificationHtml($flight, $allRecipients);
-
-    // Fix for broken map/static images in Step 3 email preview:
-    // If an image tag has a relative path or broken cid reference inside preview mode,
-    // fallback cleanly or format it to an accessible web path so the preview renders cleanly.
-    $previewHtml = preg_replace_callback('/<img\s+[^>]*src=([\"\'])(.*?)\1[^>]*>/i', function($matches) {
-        $tag = $matches[0];
-        $src = $matches[2];
-        if (str_starts_with($src, 'cid:')) {
-            return '<div style="display:inline-block; padding: 6px 12px; background: #e2e8f0; border-radius: 4px; font-size: 11px; color: #475569; font-weight: 600;">[Attached Image: ' . htmlspecialchars(substr($src, 4)) . ']</div>';
-        }
-        return $tag;
-    }, $previewHtml);
+    
+    // Pass the direct image URL so the browser loads it cleanly with zero regex processing
+    $previewHtml = buildFlightNotificationHtml($flight, $allRecipients, "flight_map_img.php?id=" . (int)$flight['id']);
     ?>
     <div class="card" style="border-top: 4px solid var(--success); max-width: 960px; margin: 0 auto 2rem auto;">
         <div class="card-header">
