@@ -84,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch Flight Details (Removed part107_cert_num per Requirement 6)
+// Fetch Flight Details (Part 107 cert number removed per Requirement 6)
 $stmt = $pdo->prepare("
     SELECT f.*, u.full_name AS pilot_name, u.phone AS pilot_phone, u.email AS pilot_email
     FROM flights f
@@ -169,9 +169,7 @@ $flightLog = $logStmt->fetch();
     $previewFrom = "FRNP Drone Flight Operations" . " <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
     $previewTo = implode(', ', $allRecipients);
     $previewSubject = "FRNP Flight Notification " . $flight['flight_number'];
-    
-    // Pass the direct image URL so the browser loads it cleanly with zero regex processing
-    $previewHtml = buildFlightNotificationHtml($flight, $allRecipients, "flight_map_img.php?id=" . (int)$flight['id']);
+    $previewHtml = buildFlightNotificationHtml($flight, $allRecipients);
     ?>
     <div class="card" style="border-top: 4px solid var(--success); max-width: 960px; margin: 0 auto 2rem auto;">
         <div class="card-header">
@@ -277,6 +275,15 @@ $flightLog = $logStmt->fetch();
                             <tr><th>Work Package</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
                             <tr><th>Target Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
                             <tr><th>Mission Scope</th><td><?= htmlspecialchars($flight['mission_purpose']) ?></td></tr>
+                            <?php if (!empty($flight['aircraft_model'])): ?>
+                                <tr><th>Aircraft Model</th><td><?= htmlspecialchars($flight['aircraft_model']) ?></td></tr>
+                            <?php endif; ?>
+                            <?php if (!empty($flight['faa_reg_number'])): ?>
+                                <tr>
+                                    <th>FAA Drone Reg #</th>
+                                    <td><code style="font-size:0.85rem;"><?= htmlspecialchars($flight['faa_reg_number']) ?></code><?= !empty($flight['faa_reg_expiration']) ? ' <small style="color:var(--text-muted);">(Exp: ' . htmlspecialchars($flight['faa_reg_expiration']) . ')</small>' : '' ?></td>
+                                </tr>
+                            <?php endif; ?>
                             <?php if (!empty($flight['payload'])): ?>
                                 <tr><th>Payload</th><td><?= htmlspecialchars($flight['payload']) ?></td></tr>
                             <?php endif; ?>
@@ -315,9 +322,19 @@ $flightLog = $logStmt->fetch();
                                 <th>Mission Scope</th>
                                 <td><strong style="color: var(--primary-dark);"><?= nl2br(htmlspecialchars($flight['mission_purpose'])) ?></strong></td>
                             </tr>
+                            <tr>
+                                <th>UAS Make &amp; Model</th>
+                                <td><?= htmlspecialchars($flight['aircraft_model']) ?></td>
+                            </tr>
+                            <?php if (!empty($flight['faa_reg_number'])): ?>
+                            <tr>
+                                <th>FAA Drone Reg #</th>
+                                <td><code style="font-size:0.85rem;"><?= htmlspecialchars($flight['faa_reg_number']) ?></code><?= !empty($flight['faa_reg_expiration']) ? ' <span style="color:var(--text-muted);">(Expires: ' . htmlspecialchars($flight['faa_reg_expiration']) . ')</span>' : '' ?></td>
+                            </tr>
+                            <?php endif; ?>
                             <?php if (!empty($flight['payload'])): ?>
                             <tr>
-                                <th>Payload</th>
+                                <th>Payload Equipment</th>
                                 <td><?= htmlspecialchars($flight['payload']) ?></td>
                             </tr>
                             <?php endif; ?>
@@ -344,10 +361,6 @@ $flightLog = $logStmt->fetch();
                             <tr>
                                 <th>Scheduled Date &amp; Time</th>
                                 <td><?= $flight['flight_date'] ?> (<?= $flight['start_time'] ?> - <?= $flight['end_time'] ?> Local)</td>
-                            </tr>
-                            <tr>
-                                <th>UAS Make &amp; Model</th>
-                                <td><?= htmlspecialchars($flight['aircraft_model']) ?></td>
                             </tr>
                             <tr>
                                 <th>Remote Pilot in Command</th>
@@ -400,8 +413,15 @@ $flightLog = $logStmt->fetch();
                             <tr><th>Work Package</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
                             <tr><th>Target Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
                             <tr><th>Mission Scope</th><td><strong style="color: var(--primary-dark);"><?= nl2br(htmlspecialchars($flight['mission_purpose'])) ?></strong></td></tr>
+                            <tr><th>Aircraft Model</th><td><?= htmlspecialchars($flight['aircraft_model']) ?></td></tr>
+                            <?php if (!empty($flight['faa_reg_number'])): ?>
+                                <tr>
+                                    <th>FAA Drone Reg #</th>
+                                    <td><code style="font-size:0.85rem;"><?= htmlspecialchars($flight['faa_reg_number']) ?></code><?= !empty($flight['faa_reg_expiration']) ? ' <small style="color:var(--text-muted);">(Exp: ' . htmlspecialchars($flight['faa_reg_expiration']) . ')</small>' : '' ?></td>
+                                </tr>
+                            <?php endif; ?>
                             <?php if (!empty($flight['payload'])): ?>
-                                <tr><th>Payload</th><td><?= htmlspecialchars($flight['payload']) ?></td></tr>
+                                <tr><th>Payload Equipment</th><td><?= htmlspecialchars($flight['payload']) ?></td></tr>
                             <?php endif; ?>
                             <tr><th>Airspace</th><td>Class <?= htmlspecialchars($flight['airspace_class']) ?></td></tr>
                             <tr><th>LAANC Authorization #</th><td><strong style="color: var(--success); font-family: monospace;"><?= htmlspecialchars($flight['laanc_auth_number'] ?: 'NOT REQUIRED') ?></strong></td></tr>
@@ -409,7 +429,6 @@ $flightLog = $logStmt->fetch();
                             <tr><th>Max Altitude</th><td><strong><?= $flight['max_altitude'] ?> ft AGL</strong></td></tr>
                             <tr><th>Operational Area</th><td><?= $flight['operational_acres'] ?> Acres</td></tr>
                             <tr><th>Schedule Window</th><td><?= $flight['flight_date'] ?> (<?= $flight['start_time'] ?> - <?= $flight['end_time'] ?> Local)</td></tr>
-                            <tr><th>Aircraft Model</th><td><?= htmlspecialchars($flight['aircraft_model']) ?></td></tr>
                             <tr><th>Remote PIC</th><td><?= htmlspecialchars($flight['pilot_name']) ?></td></tr>
                         </table>
 
