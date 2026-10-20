@@ -50,9 +50,42 @@ function mercatorLat2Y(float $lat, int $zoom): float {
 }
 
 /**
+ * Downloads a single web tile safely with proper headers and timeout
+ */
+function fetchTile(string $url): string {
+    if (!function_exists('curl_init')) {
+        $ctx = stream_context_create([
+            'http' => [
+                'timeout' => 3,
+                'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+            ]
+        ]);
+        return @file_get_contents($url, false, $ctx) ?: '';
+    }
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+    $res = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return ($code === 200 && !empty($res) && strlen($res) > 500) ? $res : '';
+}
+
+/**
  * Generates raw PNG binary of ESRI Satellite Imagery stitched with flight boundary and telemetry
  */
 function generateFlightAreaImageBinary(array $flight): string {
+    if (!function_exists('imagecreatetruecolor')) {
+        return '';
+    }
+
     $width = 584;
     $height = 320;
 
@@ -90,247 +123,233 @@ function generateFlightAreaImageBinary(array $flight): string {
         }
     }
 
-    if (function_exists('imagecreatetruecolor')) {
-        $img = imagecreatetruecolor($width, $height);
-        imagealphablending($img, true);
-        imagesavealpha($img, true);
+    $img = imagecreatetruecolor($width, $height);
+    imagealphablending($img, true);
+    imagesavealpha($img, true);
 
-        $bgDark = imagecolorallocate($img, 15, 23, 42);
-        $gridLine = imagecolorallocate($img, 30, 41, 59);
-        $cyan = imagecolorallocate($img, 0, 210, 255);
-        $cyanFill = imagecolorallocatealpha($img, 0, 210, 255, 80);
-        $white = imagecolorallocate($img, 248, 250, 252);
-        $green = imagecolorallocate($img, 34, 197, 94);
-        $yellow = imagecolorallocate($img, 245, 158, 11);
-        $hudBg = imagecolorallocatealpha($img, 15, 23, 42, 30);
-        $cardBorder = imagecolorallocate($img, 51, 65, 85);
-        $shadow = imagecolorallocatealpha($img, 0, 0, 0, 60);
+    $bgDark = imagecolorallocate($img, 15, 23, 42);
+    $gridLine = imagecolorallocate($img, 30, 41, 59);
+    $cyan = imagecolorallocate($img, 0, 210, 255);
+    $cyanFill = imagecolorallocatealpha($img, 0, 210, 255, 80);
+    $white = imagecolorallocate($img, 248, 250, 252);
+    $green = imagecolorallocate($img, 34, 197, 94);
+    $yellow = imagecolorallocate($img, 245, 158, 11);
+    $hudBg = imagecolorallocatealpha($img, 15, 23, 42, 30);
+    $cardBorder = imagecolorallocate($img, 51, 65, 85);
+    $shadow = imagecolorallocatealpha($img, 0, 0, 0, 60);
 
-        $centerX = mercatorLon2X($centerLng, $optimalZoom);
-        $centerY = mercatorLat2Y($centerLat, $optimalZoom);
+    $centerX = mercatorLon2X($centerLng, $optimalZoom);
+    $centerY = mercatorLat2Y($centerLat, $optimalZoom);
 
-        $imgMinX = $centerX - ($width / 2.0);
-        $imgMinY = $centerY - ($height / 2.0);
+    $imgMinX = $centerX - ($width / 2.0);
+    $imgMinY = $centerY - ($height / 2.0);
 
-        $tileMinX = (int)floor($imgMinX / 256.0);
-        $tileMaxX = (int)floor(($imgMinX + $width) / 256.0);
-        $tileMinY = (int)floor($imgMinY / 256.0);
-        $tileMaxY = (int)floor(($imgMinY + $height) / 256.0);
+    $tileMinX = (int)floor($imgMinX / 256.0);
+    $tileMaxX = (int)floor(($imgMinX + $width) / 256.0);
+    $tileMinY = (int)floor($imgMinY / 256.0);
+    $tileMaxY = (int)floor(($imgMinY + $height) / 256.0);
 
-        $cacheDir = defined('DATA_PATH') ? (DATA_PATH . '/tile_cache') : (__DIR__ . '/../data/tile_cache');
-        if (!file_exists($cacheDir)) {
-            @mkdir($cacheDir, 0777, true);
-        }
-
-        $tilesToFetch = [];
-        $tilesData = [];
-
-        for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
-            for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
-                $key = "{$optimalZoom}_{$ty}_{$tx}";
-                $cachePath = "{$cacheDir}/{$key}.jpg";
-
-                if (file_exists($cachePath) && filesize($cachePath) > 500) {
-                    $tilesData[$key] = file_get_contents($cachePath);
-                } else {
-                    $tilesToFetch[$key] = [
-                        'url' => "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}",
-                        'backup_url' => "https://mt1.google.com/vt/lyrs=s&x={$tx}&y={$ty}&z={$optimalZoom}",
-                        'cache_path' => $cachePath
-                    ];
-                }
-            }
-        }
-
-        // Fetch missing tiles using valid browser headers to prevent 403 Forbidden
-        if (!empty($tilesToFetch) && function_exists('curl_multi_init')) {
-            $mh = curl_multi_init();
-            $curlHandles = [];
-
-            $headers = [
-                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-                'Referer: https://www.arcgis.com/',
-                'Accept-Language: en-US,en;q=0.9'
-            ];
-
-            foreach ($tilesToFetch as $key => $info) {
-                $ch = curl_init();
-                curl_setopt($ch, CURLOPT_URL, $info['url']);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 6);
-                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
-                curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-                curl_multi_add_handle($mh, $ch);
-                $curlHandles[$key] = $ch;
-            }
-
-            $active = null;
-            do {
-                $status = curl_multi_exec($mh, $active);
-            } while ($status === CURLM_CALL_MULTI_PERFORM);
-
-            while ($active && $status === CURLM_OK) {
-                if (curl_multi_select($mh, 0.5) === -1) {
-                    usleep(25000); // 25ms delay if select returns -1
-                }
-                do {
-                    $status = curl_multi_exec($mh, $active);
-                } while ($status === CURLM_CALL_MULTI_PERFORM);
-            }
-
-            foreach ($curlHandles as $key => $ch) {
-                $rawTile = curl_multi_getcontent($ch);
-                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-                if ($httpCode === 200 && !empty($rawTile) && strlen($rawTile) > 500) {
-                    @file_put_contents($tilesToFetch[$key]['cache_path'], $rawTile);
-                    $tilesData[$key] = $rawTile;
-                } else {
-                    // Fallback to secondary satellite tile if primary was rejected or timed out
-                    $backupUrl = $tilesToFetch[$key]['backup_url'];
-                    $bCh = curl_init($backupUrl);
-                    curl_setopt($bCh, CURLOPT_RETURNTRANSFER, true);
-                    curl_setopt($bCh, CURLOPT_FOLLOWLOCATION, true);
-                    curl_setopt($bCh, CURLOPT_TIMEOUT, 4);
-                    curl_setopt($bCh, CURLOPT_SSL_VERIFYPEER, false);
-                    curl_setopt($bCh, CURLOPT_SSL_VERIFYHOST, 0);
-                    curl_setopt($bCh, CURLOPT_HTTPHEADER, $headers);
-                    $backupTile = curl_exec($bCh);
-                    $bCode = curl_getinfo($bCh, CURLINFO_HTTP_CODE);
-                    curl_close($bCh);
-
-                    if ($bCode === 200 && !empty($backupTile) && strlen($backupTile) > 500) {
-                        @file_put_contents($tilesToFetch[$key]['cache_path'], $backupTile);
-                        $tilesData[$key] = $backupTile;
-                    }
-                }
-                curl_multi_remove_handle($mh, $ch);
-                curl_close($ch);
-            }
-            curl_multi_close($mh);
-        }
-
-        $loadedSatCount = 0;
-        for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
-            for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
-                $key = "{$optimalZoom}_{$ty}_{$tx}";
-                $destX = (int)round(($tx * 256.0) - $imgMinX);
-                $destY = (int)round(($ty * 256.0) - $imgMinY);
-
-                if (!empty($tilesData[$key])) {
-                    $tileImg = @imagecreatefromstring($tilesData[$key]);
-                    if ($tileImg) {
-                        $srcX = 0;
-                        $srcY = 0;
-                        $srcW = 256;
-                        $srcH = 256;
-
-                        // Clip negative canvas bounds safely for GD compatibility
-                        if ($destX < 0) {
-                            $srcX = -$destX;
-                            $srcW -= $srcX;
-                            $destX = 0;
-                        }
-                        if ($destY < 0) {
-                            $srcY = -$destY;
-                            $srcH -= $srcY;
-                            $destY = 0;
-                        }
-                        if ($destX + $srcW > $width) {
-                            $srcW = $width - $destX;
-                        }
-                        if ($destY + $srcH > $height) {
-                            $srcH = $height - $destY;
-                        }
-
-                        if ($srcW > 0 && $srcH > 0) {
-                            imagecopy($img, $tileImg, $destX, $destY, $srcX, $srcY, $srcW, $srcH);
-                            $loadedSatCount++;
-                        }
-                        imagedestroy($tileImg);
-                    }
-                }
-            }
-        }
-
-        // If satellite tiles could not be fetched due to offline/strict firewall status, draw tactical grid
-        if ($loadedSatCount === 0) {
-            imagefilledrectangle($img, 0, 0, $width, $height, $bgDark);
-            for ($x = 0; $x < $width; $x += 35) {
-                imageline($img, $x, 0, $x, $height, $gridLine);
-            }
-            for ($y = 0; $y < $height; $y += 35) {
-                imageline($img, 0, $y, $width, $y, $gridLine);
-            }
-        }
-
-        $projectX = function($lon) use ($optimalZoom, $imgMinX) {
-            return (int)round(mercatorLon2X($lon, $optimalZoom) - $imgMinX);
-        };
-        $projectY = function($lat) use ($optimalZoom, $imgMinY) {
-            return (int)round(mercatorLat2Y($lat, $optimalZoom) - $imgMinY);
-        };
-
-        if (!empty($rawCoords) && count($rawCoords) >= 3) {
-            $polyPoints = [];
-            foreach ($rawCoords as $c) {
-                $polyPoints[] = $projectX($c[0]);
-                $polyPoints[] = $projectY($c[1]);
-            }
-            imagefilledpolygon($img, $polyPoints, $cyanFill);
-            imagesetthickness($img, 3);
-            for ($i = 0; $i < count($rawCoords) - 1; $i++) {
-                imageline($img, $projectX($rawCoords[$i][0]), $projectY($rawCoords[$i][1]), $projectX($rawCoords[$i+1][0]), $projectY($rawCoords[$i+1][1]), $cyan);
-            }
-            imagesetthickness($img, 1);
-        }
-
-        $centroidX = $projectX($lng);
-        $centroidY = $projectY($lat);
-
-        imagesetthickness($img, 3);
-        imageline($img, $centroidX - 13, $centroidY, $centroidX + 13, $centroidY, $shadow);
-        imageline($img, $centroidX, $centroidY - 13, $centroidX, $centroidY + 13, $shadow);
-        imageellipse($img, $centroidX, $centroidY, 19, 19, $shadow);
-
-        imagesetthickness($img, 2);
-        imageline($img, $centroidX - 12, $centroidY, $centroidX + 12, $centroidY, $cyan);
-        imageline($img, $centroidX, $centroidY - 12, $centroidX, $centroidY + 12, $cyan);
-        imageellipse($img, $centroidX, $centroidY, 18, 18, $cyan);
-        imagefilledellipse($img, $centroidX, $centroidY, 5, 5, $white);
-        imagesetthickness($img, 1);
-
-        imagefilledrectangle($img, 10, 10, 310, 48, $hudBg);
-        imagerectangle($img, 10, 10, 310, 48, $cardBorder);
-        imagestring($img, 3, 18, 15, "FLIGHT AREA BOUNDARY MAP", $cyan);
-        $acres = $flight['operational_acres'] ?? 0;
-        $alt = $flight['max_altitude'] ?? 0;
-        imagestring($img, 2, 18, 30, "Footprint: {$acres} Ac | Ceiling: {$alt} ft AGL", $white);
-
-        imagefilledrectangle($img, $width - 44, 10, $width - 10, 48, $hudBg);
-        imagerectangle($img, $width - 44, 10, $width - 10, 48, $cardBorder);
-        imagestring($img, 3, $width - 32, 14, "N", $white);
-        imageline($img, $width - 27, 28, $width - 27, 39, $cyan);
-
-        imagefilledrectangle($img, 10, $height - 34, $width - 10, $height - 8, $hudBg);
-        imagerectangle($img, 10, $height - 34, $width - 10, $height - 8, $cardBorder);
-        $coordStr = "Centroid: " . round($lat, 6) . ", " . round($lng, 6);
-        $airspaceStr = "Airspace: Class " . ($flight['airspace_class'] ?? 'G');
-        imagestring($img, 2, 18, $height - 25, $coordStr, $white);
-        imagestring($img, 2, $width - 150, $height - 25, $airspaceStr, (($flight['airspace_class'] ?? 'G') === 'G' ? $green : $yellow));
-
-        ob_start();
-        imagepng($img);
-        $binary = ob_get_clean();
-        imagedestroy($img);
-        return $binary;
+    $cacheDir = defined('DATA_PATH') ? (DATA_PATH . '/tile_cache') : (__DIR__ . '/../data/tile_cache');
+    if (!file_exists($cacheDir)) {
+        @mkdir($cacheDir, 0777, true);
     }
 
-    return '';
+    $loadedSatCount = 0;
+
+    for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
+        for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
+            $key = "{$optimalZoom}_{$ty}_{$tx}";
+            $cachePath = "{$cacheDir}/{$key}.jpg";
+
+            $tileData = '';
+            if (file_exists($cachePath) && filesize($cachePath) > 500) {
+                $tileData = file_get_contents($cachePath);
+            } else {
+                $esriUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
+                $tileData = fetchTile($esriUrl);
+                if (empty($tileData)) {
+                    $osmUrl = "https://tile.openstreetmap.org/{$optimalZoom}/{$tx}/{$ty}.png";
+                    $tileData = fetchTile($osmUrl);
+                }
+                if (!empty($tileData)) {
+                    @file_put_contents($cachePath, $tileData);
+                }
+            }
+
+            if (!empty($tileData)) {
+                $tileImg = @imagecreatefromstring($tileData);
+                if ($tileImg) {
+                    $destX = (int)round(($tx * 256.0) - $imgMinX);
+                    $destY = (int)round(($ty * 256.0) - $imgMinY);
+
+                    $srcX = 0;
+                    $srcY = 0;
+                    $srcW = 256;
+                    $srcH = 256;
+
+                    if ($destX < 0) {
+                        $srcX = -$destX;
+                        $srcW -= $srcX;
+                        $destX = 0;
+                    }
+                    if ($destY < 0) {
+                        $srcY = -$destY;
+                        $srcH -= $srcY;
+                        $destY = 0;
+                    }
+                    if ($destX + $srcW > $width) {
+                        $srcW = $width - $destX;
+                    }
+                    if ($destY + $srcH > $height) {
+                        $srcH = $height - $destY;
+                    }
+
+                    if ($srcW > 0 && $srcH > 0) {
+                        imagecopy($img, $tileImg, $destX, $destY, $srcX, $srcY, $srcW, $srcH);
+                        $loadedSatCount++;
+                    }
+                    imagedestroy($tileImg);
+                }
+            }
+        }
+    }
+
+    // Fallback vector grid if no satellite tiles downloaded
+    if ($loadedSatCount === 0) {
+        imagefilledrectangle($img, 0, 0, $width, $height, $bgDark);
+        for ($x = 0; $x < $width; $x += 35) {
+            imageline($img, $x, 0, $x, $height, $gridLine);
+        }
+        for ($y = 0; $y < $height; $y += 35) {
+            imageline($img, 0, $y, $width, $y, $gridLine);
+        }
+    }
+
+    $projectX = function($lon) use ($optimalZoom, $imgMinX) {
+        return (int)round(mercatorLon2X($lon, $optimalZoom) - $imgMinX);
+    };
+    $projectY = function($lat) use ($optimalZoom, $imgMinY) {
+        return (int)round(mercatorLat2Y($lat, $optimalZoom) - $imgMinY);
+    };
+
+    if (!empty($rawCoords) && count($rawCoords) >= 3) {
+        $polyPoints = [];
+        foreach ($rawCoords as $c) {
+            $polyPoints[] = $projectX($c[0]);
+            $polyPoints[] = $projectY($c[1]);
+        }
+        imagefilledpolygon($img, $polyPoints, $cyanFill);
+        imagesetthickness($img, 3);
+        for ($i = 0; $i < count($rawCoords) - 1; $i++) {
+            imageline($img, $projectX($rawCoords[$i][0]), $projectY($rawCoords[$i][1]), $projectX($rawCoords[$i+1][0]), $projectY($rawCoords[$i+1][1]), $cyan);
+        }
+        imagesetthickness($img, 1);
+    }
+
+    $centroidX = $projectX($lng);
+    $centroidY = $projectY($lat);
+
+    imagesetthickness($img, 3);
+    imageline($img, $centroidX - 13, $centroidY, $centroidX + 13, $centroidY, $shadow);
+    imageline($img, $centroidX, $centroidY - 13, $centroidX, $centroidY + 13, $shadow);
+    imageellipse($img, $centroidX, $centroidY, 19, 19, $shadow);
+
+    imagesetthickness($img, 2);
+    imageline($img, $centroidX - 12, $centroidY, $centroidX + 12, $centroidY, $cyan);
+    imageline($img, $centroidX, $centroidY - 12, $centroidX, $centroidY + 12, $cyan);
+    imageellipse($img, $centroidX, $centroidY, 18, 18, $cyan);
+    imagefilledellipse($img, $centroidX, $centroidY, 5, 5, $white);
+    imagesetthickness($img, 1);
+
+    imagefilledrectangle($img, 10, 10, 310, 48, $hudBg);
+    imagerectangle($img, 10, 10, 310, 48, $cardBorder);
+    imagestring($img, 3, 18, 15, "FLIGHT AREA BOUNDARY MAP", $cyan);
+    $acres = $flight['operational_acres'] ?? 0;
+    $alt = $flight['max_altitude'] ?? 0;
+    imagestring($img, 2, 18, 30, "Footprint: {$acres} Ac | Ceiling: {$alt} ft AGL", $white);
+
+    imagefilledrectangle($img, $width - 44, 10, $width - 10, 48, $hudBg);
+    imagerectangle($img, $width - 44, 10, $width - 10, 48, $cardBorder);
+    imagestring($img, 3, $width - 32, 14, "N", $white);
+    imageline($img, $width - 27, 28, $width - 27, 39, $cyan);
+
+    imagefilledrectangle($img, 10, $height - 34, $width - 10, $height - 8, $hudBg);
+    imagerectangle($img, 10, $height - 34, $width - 10, $height - 8, $cardBorder);
+    $coordStr = "Centroid: " . round($lat, 6) . ", " . round($lng, 6);
+    $airspaceStr = "Airspace: Class " . ($flight['airspace_class'] ?? 'G');
+    imagestring($img, 2, 18, $height - 25, $coordStr, $white);
+    imagestring($img, 2, $width - 150, $height - 25, $airspaceStr, (($flight['airspace_class'] ?? 'G') === 'G' ? $green : $yellow));
+
+    ob_start();
+    imagepng($img);
+    $binary = ob_get_clean();
+    imagedestroy($img);
+    return $binary;
+}
+
+function generateFlightAreaSvgRaw(array $flight): string {
+    $width = 584;
+    $height = 320;
+
+    $lat = (float)($flight['latitude'] ?? 37.115191);
+    $lng = (float)($flight['longitude'] ?? -88.811224);
+    $acres = htmlspecialchars((string)($flight['operational_acres'] ?? '0.00'));
+    $alt = htmlspecialchars((string)($flight['max_altitude'] ?? '200'));
+    $airspaceClass = htmlspecialchars((string)($flight['airspace_class'] ?? 'G'));
+
+    $pointsSvg = '';
+    $rawCoords = [];
+    if (!empty($flight['polygon_geojson'])) {
+        $geo = @json_decode($flight['polygon_geojson'], true);
+        if (!empty($geo['coordinates'][0]) && is_array($geo['coordinates'][0])) {
+            $rawCoords = $geo['coordinates'][0];
+        }
+    }
+
+    if (!empty($rawCoords)) {
+        $lats = array_column($rawCoords, 1);
+        $lngs = array_column($rawCoords, 0);
+        $minLat = min($lats);
+        $maxLat = max($lats);
+        $minLng = min($lngs);
+        $maxLng = max($lngs);
+
+        $spanLat = max(0.0001, $maxLat - $minLat);
+        $spanLng = max(0.0001, $maxLng - $minLng);
+
+        $svgCoords = [];
+        foreach ($rawCoords as $c) {
+            $px = 60 + (($c[0] - $minLng) / $spanLng) * ($width - 120);
+            $py = ($height - 60) - (($c[1] - $minLat) / $spanLat) * ($height - 120);
+            $svgCoords[] = round($px, 1) . ',' . round($py, 1);
+        }
+        $pointsSvg = implode(' ', $svgCoords);
+    }
+
+    $cx = round($width / 2, 1);
+    $cy = round($height / 2, 1);
+
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' . $width . ' ' . $height . '" width="' . $width . '" height="' . $height . '" style="background:#0f172a; font-family:sans-serif;">' .
+           '<defs>' .
+           '<pattern id="grid" width="35" height="35" patternUnits="userSpaceOnUse"><path d="M 35 0 L 0 0 0 35" fill="none" stroke="#1e293b" stroke-width="1"/></pattern>' .
+           '</defs>' .
+           '<rect width="' . $width . '" height="' . $height . '" fill="#0f172a"/>' .
+           '<rect width="' . $width . '" height="' . $height . '" fill="url(#grid)"/>' .
+           (!empty($pointsSvg) ? '<polygon points="' . $pointsSvg . '" fill="rgba(0, 210, 255, 0.25)" stroke="#00d2ff" stroke-width="3" stroke-linejoin="round"/>' : '') .
+           '<circle cx="' . $cx . '" cy="' . $cy . '" r="9" stroke="#00d2ff" stroke-width="2" fill="none"/>' .
+           '<line x1="' . ($cx - 13) . '" y1="' . $cy . '" x2="' . ($cx + 13) . '" y2="' . $cy . '" stroke="#00d2ff" stroke-width="2"/>' .
+           '<line x1="' . $cx . '" y1="' . ($cy - 13) . '" x2="' . $cx . '" y2="' . ($cy + 13) . '" stroke="#00d2ff" stroke-width="2"/>' .
+           '<circle cx="' . $cx . '" cy="' . $cy . '" r="2.5" fill="#ffffff"/>' .
+           '<rect x="10" y="10" width="310" height="42" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
+           '<text x="20" y="27" fill="#00d2ff" font-size="12" font-weight="bold">FLIGHT AREA BOUNDARY MAP</text>' .
+           '<text x="20" y="43" fill="#f8fafc" font-size="10">Footprint: ' . $acres . ' Ac | Ceiling: ' . $alt . ' ft AGL</text>' .
+           '<rect x="' . ($width - 44) . '" y="10" width="34" height="42" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
+           '<text x="' . ($width - 32) . '" y="27" fill="#ffffff" font-size="12" font-weight="bold">N</text>' .
+           '<line x1="' . ($width - 27) . '" y1="31" x2="' . ($width - 27) . '" y2="42" stroke="#00d2ff" stroke-width="2"/>' .
+           '<rect x="10" y="' . ($height - 34) . '" width="' . ($width - 20) . '" height="26" rx="4" fill="rgba(15, 23, 42, 0.85)" stroke="#334155" stroke-width="1"/>' .
+           '<text x="20" y="' . ($height - 17) . '" fill="#f8fafc" font-size="10">Centroid: ' . round($lat, 6) . ', ' . round($lng, 6) . '</text>' .
+           '<text x="' . ($width - 140) . '" y="' . ($height - 17) . '" fill="' . ($airspaceClass === 'G' ? '#22c55e' : '#f59e0b') . '" font-size="10" font-weight="bold">Airspace: Class ' . $airspaceClass . '</text>' .
+           '</svg>';
 }
 
 function generateFlightAreaImageBase64(array $flight): string {
@@ -338,12 +357,12 @@ function generateFlightAreaImageBase64(array $flight): string {
     if (!empty($binary)) {
         return 'data:image/png;base64,' . base64_encode($binary);
     }
-    return '';
+    return 'data:image/svg+xml;base64,' . base64_encode(generateFlightAreaSvgRaw($flight));
 }
 
 function buildFlightNotificationHtml(array $flight, array $recipients, ?string $imageSrc = null): string {
     if ($imageSrc === null || empty($imageSrc)) {
-        $imageSrc = generateFlightAreaImageBase64($flight);
+        $imageSrc = "flight_map_img.php?id=" . (int)$flight['id'];
     }
 
     $laancBadgeColor = (!empty($flight['laanc_auth_number']) || $flight['laanc_status'] === 'AUTO_APPROVED') ? '#16a34a' : '#d97706';
@@ -476,7 +495,7 @@ function buildFlightNotificationText(array $flight): string {
 
 function buildPostFlightReminderHtml(array $flight, array $creator, ?string $imageSrc = null): string {
     if ($imageSrc === null || empty($imageSrc)) {
-        $imageSrc = generateFlightAreaImageBase64($flight);
+        $imageSrc = "flight_map_img.php?id=" . (int)$flight['id'];
     }
 
     $localTzName = date('T');
@@ -509,7 +528,6 @@ function buildPostFlightReminderText(array $flight, array $creator): string {
 
 /**
  * Pure PHP SMTP client supporting MIME multipart/related for inline CID images
- * Transmits payloads in 8KB buffered chunks to avoid OpenSSL buffer frame limits.
  */
 function sendSmtpMail(array $to, string $subject, string $htmlBody, string $textBody = '', ?string &$errorOutput = null, array $inlineImages = []): bool {
     $host = getSystemSetting('smtp_host', '127.0.0.1');
@@ -698,13 +716,7 @@ function sendSmtpMail(array $to, string $subject, string $htmlBody, string $text
     $sendCommand("QUIT");
     fclose($socket);
 
-    if (substr($resultResp, 0, 3) === '250') {
-        return true;
-    } else {
-        $errorOutput = "Server rejected message body: " . trim($resultResp);
-        logSystemError('SMTP', $errorOutput, implode("\n", $transcript));
-        return false;
-    }
+    return (substr($resultResp, 0, 3) === '250');
 }
 
 /**
