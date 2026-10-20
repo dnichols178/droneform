@@ -33,11 +33,10 @@ function initFlightPlannerMap() {
 
     window.flightMap = map;
 
-    // Cross-origin enabled so client-side canvas snapshot can read imagery tiles
-    L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 18,
-        crossOrigin: 'anonymous',
-        attribution: 'USGS The National Map'
+    // Pure 90° Top-Down Nadir Satellite (Google Satellite Tile Server) - zoom up to 20 without 404s
+    L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
     }).addTo(map);
 
     setTimeout(() => {
@@ -186,7 +185,6 @@ function initFlightPlannerMap() {
         }).addTo(map);
 
         updateTelemetry();
-        window.generateMapSnapshot();
     }
 
     function resetPolygon() {
@@ -252,79 +250,6 @@ function initFlightPlannerMap() {
 
         detectAirspaceClass(centerLat, centerLng);
     }
-
-    // High-resolution client satellite snapshot generator (strips data: prefix to prevent WAF 406 errors)
-    window.generateMapSnapshot = function() {
-        const input = document.getElementById('map_image_base64');
-        if (!input) return;
-
-        const canvas = document.createElement('canvas');
-        canvas.width = 584;
-        canvas.height = 320;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(0, 0, 584, 320);
-
-        const mapContainer = document.getElementById('flight-polygon-map');
-        if (!mapContainer) return;
-        const mapRect = mapContainer.getBoundingClientRect();
-        const tiles = mapContainer.querySelectorAll('.leaflet-tile-loaded');
-
-        try {
-            tiles.forEach(tile => {
-                if (tile.naturalWidth && tile.complete) {
-                    const rect = tile.getBoundingClientRect();
-                    const x = (rect.left - mapRect.left) * (584 / mapRect.width);
-                    const y = (rect.top - mapRect.top) * (320 / mapRect.height);
-                    const w = rect.width * (584 / mapRect.width);
-                    const h = rect.height * (320 / mapRect.height);
-                    ctx.drawImage(tile, x, y, w, h);
-                }
-            });
-
-            if (polygonPoints && polygonPoints.length >= 3) {
-                ctx.beginPath();
-                polygonPoints.forEach((p, idx) => {
-                    const pt = map.latLngToContainerPoint(p);
-                    const x = pt.x * (584 / mapRect.width);
-                    const y = pt.y * (320 / mapRect.height);
-                    if (idx === 0) ctx.moveTo(x, y);
-                    else ctx.lineTo(x, y);
-                });
-                ctx.closePath();
-                ctx.fillStyle = 'rgba(0, 210, 255, 0.25)';
-                ctx.fill();
-                ctx.strokeStyle = '#00d2ff';
-                ctx.lineWidth = 3;
-                ctx.stroke();
-            }
-
-            // HUD Overlays
-            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-            ctx.fillRect(10, 10, 310, 42);
-            ctx.strokeStyle = '#334155';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(10, 10, 310, 42);
-
-            ctx.fillStyle = '#00d2ff';
-            ctx.font = 'bold 12px sans-serif';
-            ctx.fillText('FLIGHT AREA BOUNDARY MAP', 20, 26);
-
-            const acres = document.getElementById('operational_acres') ? document.getElementById('operational_acres').value : '0';
-            const alt = document.getElementById('max_altitude') ? document.getElementById('max_altitude').value : '200';
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '10px sans-serif';
-            ctx.fillText(`Footprint: ${acres} Ac | Ceiling: ${alt} ft AGL`, 20, 42);
-
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.80);
-            // Strip data URI scheme so WAF / ModSecurity does not block the POST as XSS with HTTP 406
-            input.value = dataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
-        } catch (e) {
-            console.warn('Canvas snapshot skipped:', e);
-        }
-    };
 }
 
 /* ==========================================================================
