@@ -11,10 +11,11 @@ $actionMsg = '';
 $actionError = '';
 $keepOnStep3 = false;
 
-// Handle background auto-save of client-captured base64 satellite image
+// Handle background auto-save of client-captured satellite snapshot
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_map_snapshot') {
-    $imgBase64 = trim($_POST['map_image_base64'] ?? '');
-    if (!empty($imgBase64) && str_starts_with($imgBase64, 'data:image')) {
+    $rawSnap = trim($_POST['map_image_base64'] ?? '');
+    if (!empty($rawSnap)) {
+        $imgBase64 = str_starts_with($rawSnap, 'data:') ? $rawSnap : ('data:image/jpeg;base64,' . $rawSnap);
         $pdo->prepare("UPDATE flights SET map_image_base64 = ? WHERE id = ? AND (map_image_base64 IS NULL OR map_image_base64 = '')")->execute([$imgBase64, $flightId]);
     }
     exit;
@@ -178,7 +179,7 @@ $flightLog = $logStmt->fetch();
     $previewFrom = "FRNP Drone Flight Operations" . " <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
     $previewTo = implode(', ', $allRecipients);
     $previewSubject = "FRNP Flight Notification " . $flight['flight_number'];
-    // Pass the embedded base64 string directly
+    // Pass direct base64 image representation
     $previewHtml = buildFlightNotificationHtml($flight, $allRecipients);
     ?>
     <div class="card" style="border-top: 4px solid var(--success); max-width: 960px; margin: 0 auto 2rem auto;">
@@ -508,16 +509,17 @@ $flightLog = $logStmt->fetch();
 <?php endif; ?>
 
 <script>
-// If viewing Step 1 or 2 and flight has no saved base64 image yet, auto-capture from visible Leaflet satellite map
+// Auto-capture live satellite map for existing flight records that don't yet have a snapshot
 document.addEventListener('DOMContentLoaded', function () {
     const hiddenSnap = document.getElementById('map_image_base64');
     if (hiddenSnap && (!hiddenSnap.value || hiddenSnap.value.trim() === '')) {
         setTimeout(function() {
             if (typeof window.generateMapSnapshot === 'function') {
                 window.generateMapSnapshot();
-                if (hiddenSnap.value && hiddenSnap.value.startsWith('data:image')) {
+                if (hiddenSnap.value) {
                     const fd = new FormData();
                     fd.append('action', 'save_map_snapshot');
+                    // Value is clean base64 string
                     fd.append('map_image_base64', hiddenSnap.value);
                     fetch('flight_details.php?id=<?= $flightId ?>', { method: 'POST', body: fd });
                 }
