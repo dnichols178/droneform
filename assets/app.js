@@ -33,10 +33,11 @@ function initFlightPlannerMap() {
 
     window.flightMap = map;
 
-    // USGS National Map High-Resolution Orthoimagery with Anonymous CORS for HTML5 Canvas Export
-    L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 18,
-        crossOrigin: 'anonymous'
+    // Pure 90° Flat Top-Down Nadir Satellite (Zoom up to 20 without 404s)
+    L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
+		maxNativeZoom: 20,
+        subdomains: ['0', '1', '2', '3']
     }).addTo(map);
 
     setTimeout(() => {
@@ -326,11 +327,6 @@ function initFlightPlannerMap() {
             ctx.font = 'bold 12px sans-serif';
             ctx.fillText('FLIGHT AREA BOUNDARY MAP', 20, 26);
 
-            const acres = document.getElementById('operational_acres') ? document.getElementById('operational_acres').value : '0';
-            const alt = document.getElementById('max_altitude') ? document.getElementById('max_altitude').value : '200';
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '10px sans-serif';
-            ctx.fillText(`Footprint: ${acres} Ac | Ceiling: ${alt} ft AGL`, 20, 42);
 
             // Bottom Telemetry Bar
             ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
