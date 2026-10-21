@@ -6,6 +6,12 @@ require_once __DIR__ . '/includes/db.php';
 $pdo = getDB();
 
 $error = '';
+$msg = '';
+
+if (isset($_GET['msg']) && $_GET['msg'] === 'password_reset') {
+    $msg = 'Your password has been successfully reset. Please log in with your new credentials.';
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
@@ -36,9 +42,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body class="auth-wrapper">
     <div class="auth-card">
         <div class="auth-header">
-            <img width="100%" src="./assets/frnp_logo.png">
+            <img width="100%" src="./assets/frnp_logo.png" alt="FRNP Logo">
             <p>Drone Flight Management and Notification System</p>
         </div>
+
+        <?php if ($msg): ?>
+            <div class="alert alert-success"><?= htmlspecialchars($msg) ?></div>
+        <?php endif; ?>
 
         <?php if ($error): ?>
             <div class="alert alert-danger"><?= htmlspecialchars($error) ?></div>
@@ -51,7 +61,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
 
             <div class="form-group">
-                <label for="password">Password</label>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                    <label for="password" style="margin-bottom: 0;">Password</label>
+                    <a href="forgot_password.php" style="font-size: 0.85rem; text-decoration: none;">Forgot Password?</a>
+                </div>
                 <input type="password" id="password" name="password" class="form-control" required>
             </div>
 
