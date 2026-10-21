@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Handle POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireLogin();
     $action = $_POST['action'] ?? '';
 
     // CANCEL & PURGE FLIGHT (Step 2 or Step 3)
@@ -211,20 +212,26 @@ $flightLog = $logStmt->fetch();
                 </div>
             </div>
 
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" onsubmit="return confirm('Cancel and delete this flight plan? All flight data will be permanently purged.');">
-                    <input type="hidden" name="action" value="cancel_flight">
-                    <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: var(--danger);">
-                        X Cancel &amp; Delete Flight
-                    </button>
-                </form>
-                <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>">
-                    <input type="hidden" name="action" value="send_final_notification">
-                    <button type="submit" class="btn btn-success" style="font-size: 1.05rem; padding: 0.75rem 1.75rem;">
-                        Send Notification
-                    </button>
-                </form>
-            </div>
+            <?php if (isLoggedIn()): ?>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" onsubmit="return confirm('Cancel and delete this flight plan? All flight data will be permanently purged.');">
+                        <input type="hidden" name="action" value="cancel_flight">
+                        <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: var(--danger);">
+                            X Cancel &amp; Delete Flight
+                        </button>
+                    </form>
+                    <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>">
+                        <input type="hidden" name="action" value="send_final_notification">
+                        <button type="submit" class="btn btn-success" style="font-size: 1.05rem; padding: 0.75rem 1.75rem;">
+                            Send Notification
+                        </button>
+                    </form>
+                </div>
+            <?php else: ?>
+                <div class="alert alert-info" style="margin-bottom: 0;">
+                    <a href="login.php">Log in</a> to send notification dispatches or manage this flight plan.
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -258,22 +265,29 @@ $flightLog = $logStmt->fetch();
                                 Paste coordinates into Aloft to request your instant FAA authorization.
                             </div>
                         </div>
-                        <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>">
-                            <input type="hidden" name="action" value="record_laanc">
-                            <div class="form-group">
-                                <label for="laanc_auth_number">Enter Returned FAA LAANC Authorization #:</label>
-                                <input type="text" 
-                                       name="laanc_auth_number" 
-                                       id="laanc_auth_number" 
-                                       class="form-control" 
-                                       placeholder="e.g. FAA-LAANC-XXXXXX" 
-                                       style="font-family: monospace; font-size: 1.1rem; text-transform: uppercase;" 
-                                       required 
-                                       autofocus>
-                                <div class="form-hint">Must be unique across all flight records.</div>
+
+                        <?php if (isLoggedIn()): ?>
+                            <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>">
+                                <input type="hidden" name="action" value="record_laanc">
+                                <div class="form-group">
+                                    <label for="laanc_auth_number">Enter Returned FAA LAANC Authorization #:</label>
+                                    <input type="text" 
+                                           name="laanc_auth_number" 
+                                           id="laanc_auth_number" 
+                                           class="form-control" 
+                                           placeholder="e.g. FAA-LAANC-XXXXXX" 
+                                           style="font-family: monospace; font-size: 1.1rem; text-transform: uppercase;" 
+                                           required 
+                                           autofocus>
+                                    <div class="form-hint">Must be unique across all flight records.</div>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block">Save Authorization &amp; Continue →</button>
+                            </form>
+                        <?php else: ?>
+                            <div class="alert alert-info" style="margin-bottom: 0;">
+                                <a href="login.php">Log in</a> to record LAANC clearance codes for this flight.
                             </div>
-                            <button type="submit" class="btn btn-primary btn-block">Save Authorization &amp; Continue →</button>
-                        </form>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -384,17 +398,23 @@ $flightLog = $logStmt->fetch();
                             </tr>
                         </table>
 
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 1rem; border-top: 1px solid var(--border-light);">
-                            <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" onsubmit="return confirm('Are you sure you want to cancel and delete this flight plan? All entered mission parameters, coordinates, and LAANC records will be permanently deleted.');">
-                                <input type="hidden" name="action" value="cancel_flight">
-                                <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: var(--danger);">
-                                    X Cancel &amp; Delete Flight Plan
-                                </button>
-                            </form>
-                            <a href="flight_details.php?id=<?= $flight['id'] ?>&step=review" class="btn btn-primary">
-                                Review and Send Notification →
-                            </a>
-                        </div>
+                        <?php if (isLoggedIn()): ?>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 1rem; border-top: 1px solid var(--border-light);">
+                                <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" onsubmit="return confirm('Are you sure you want to cancel and delete this flight plan? All entered mission parameters, coordinates, and LAANC records will be permanently deleted.');">
+                                    <input type="hidden" name="action" value="cancel_flight">
+                                    <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: var(--danger);">
+                                        X Cancel &amp; Delete Flight Plan
+                                    </button>
+                                </form>
+                                <a href="flight_details.php?id=<?= $flight['id'] ?>&step=review" class="btn btn-primary">
+                                    Review and Send Notification →
+                                </a>
+                            </div>
+                        <?php else: ?>
+                            <div class="alert alert-info" style="margin-bottom: 0;">
+                                <a href="login.php">Log in</a> to send notification dispatches or manage this flight plan.
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -408,7 +428,9 @@ $flightLog = $logStmt->fetch();
                                 🖨️ Print / Generate PDF
                             </a>
                             <?php if (!$flightLog): ?>
-                                <a href="flight_log.php?flight_id=<?= $flight['id'] ?>" class="btn btn-success btn-sm">+ Complete Post-Flight Log</a>
+                                <?php if (isLoggedIn()): ?>
+                                    <a href="flight_log.php?flight_id=<?= $flight['id'] ?>" class="btn btn-success btn-sm">+ Complete Post-Flight Log</a>
+                                <?php endif; ?>
                             <?php else: ?>
                                 <span class="badge badge-success">POST-FLIGHT LOGGED</span>
                             <?php endif; ?>
@@ -437,16 +459,18 @@ $flightLog = $logStmt->fetch();
                             <tr><th>Remote PIC</th><td><?= htmlspecialchars($flight['pilot_name']) ?></td></tr>
                         </table>
 
-                        <div style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: 6px; padding: 1rem;">
-                            <span style="font-size: 0.9rem; font-weight: 600;">Re-dispatch Notification Email:</span>
-                            <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" style="margin-top: 0.5rem;">
-                                <input type="hidden" name="action" value="resend_notification">
-                                <div class="form-group">
-                                    <input type="text" name="extra_emails" class="form-control" placeholder="Add extra email (optional, comma-separated)">
-                                </div>
-                                <button type="submit" class="btn btn-outline btn-sm">Resend Notification Email</button>
-                            </form>
-                        </div>
+                        <?php if (isLoggedIn()): ?>
+                            <div style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: 6px; padding: 1rem;">
+                                <span style="font-size: 0.9rem; font-weight: 600;">Re-dispatch Notification Email:</span>
+                                <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" style="margin-top: 0.5rem;">
+                                    <input type="hidden" name="action" value="resend_notification">
+                                    <div class="form-group">
+                                        <input type="text" name="extra_emails" class="form-control" placeholder="Add extra email (optional, comma-separated)">
+                                    </div>
+                                    <button type="submit" class="btn btn-outline btn-sm">Resend Notification Email</button>
+                                </form>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             <?php endif; ?>
