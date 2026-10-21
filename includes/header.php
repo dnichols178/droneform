@@ -2,7 +2,6 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 
-requireLogin();
 $user = getCurrentUser();
 ?>
 <!DOCTYPE html>
@@ -25,15 +24,21 @@ $user = getCurrentUser();
     <ul class="nav-links">
         <li><a href="dashboard.php" class="<?= ($currentPage ?? '') === 'dashboard' ? 'active' : '' ?>">Dashboard</a></li>
         <li><a href="flights.php" class="<?= ($currentPage ?? '') === 'flights' ? 'active' : '' ?>">Flight Log</a></li>
-        <?php if ($user['role'] === 'admin'): ?>
+        <?php if (isAdmin()): ?>
             <li><a href="users.php" class="<?= ($currentPage ?? '') === 'users' ? 'active' : '' ?>">User Administration</a></li>
             <li><a href="settings.php" class="<?= ($currentPage ?? '') === 'settings' ? 'active' : '' ?>">Settings</a></li>
         <?php endif; ?>
-        <li><a href="flight_create.php" class="<?= ($currentPage ?? '') === 'create_flight' ? 'active' : '' ?>">New Flight</a></li>
+        <?php if (isLoggedIn()): ?>
+            <li><a href="flight_create.php" class="<?= ($currentPage ?? '') === 'create_flight' ? 'active' : '' ?>">New Flight</a></li>
+        <?php endif; ?>
     </ul>
     <div class="nav-user">
-        <span><strong><?= htmlspecialchars($user['full_name']) ?></strong> (<?= strtoupper($user['role']) ?>)</span>
-        <a href="logout.php" class="btn btn-sm btn-outline">Log Out</a>
+        <?php if (isLoggedIn() && $user): ?>
+            <span><strong><?= htmlspecialchars($user['full_name']) ?></strong> (<?= strtoupper($user['role']) ?>)</span>
+            <a href="logout.php" class="btn btn-sm btn-outline">Log Out</a>
+        <?php else: ?>
+            <a href="login.php" class="btn btn-sm btn-outline">Log In</a>
+        <?php endif; ?>
     </div>
 </nav>
 
