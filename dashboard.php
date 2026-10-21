@@ -22,6 +22,10 @@ $recentFlights = $pdo->query("
 ")->fetchAll();
 ?>
 
+<?php if (isset($_GET['error']) && $_GET['error'] === 'unauthorized'): ?>
+    <div class="alert alert-danger">You do not have administrative privileges to access that page.</div>
+<?php endif; ?>
+
 <?php if (isset($_GET['msg']) && $_GET['msg'] === 'flight_cancelled'): ?>
     <div class="alert alert-info">Flight plan and all associated records have been cancelled and permanently deleted.</div>
 <?php endif; ?>
@@ -44,7 +48,9 @@ $recentFlights = $pdo->query("
 <div class="card">
     <div class="card-header">
         <h2 class="card-title">Recent &amp; Upcoming Flight Missions</h2>
-        <a href="flight_create.php" class="btn btn-primary btn-sm">+ Plan Flight</a>
+        <?php if (isLoggedIn()): ?>
+            <a href="flight_create.php" class="btn btn-primary btn-sm">+ Plan Flight</a>
+        <?php endif; ?>
     </div>
     <div class="card-body">
         <div class="table-responsive">
