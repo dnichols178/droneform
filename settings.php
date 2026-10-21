@@ -28,15 +28,15 @@ $pdo->exec("
 // 1. Handle SMTP & Timezone Settings Update
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_smtp') {
     $settingsToSave = [
-        'smtp_host'     => trim($_POST['smtp_host'] ?? ''),
-        'smtp_port'     => trim($_POST['smtp_port'] ?? '25'),
-        'smtp_auth'     => isset($_POST['smtp_auth']) ? '1' : '0',
-        'smtp_user'     => trim($_POST['smtp_user'] ?? ''),
-        'smtp_pass'     => trim($_POST['smtp_pass'] ?? ''),
-        'smtp_secure'   => $_POST['smtp_secure'] ?? 'none',
-        'mail_from'     => trim($_POST['mail_from'] ?? ''),
-        'mail_from_name'=> trim($_POST['mail_from_name'] ?? ''),
-        'app_timezone'  => trim($_POST['app_timezone'] ?? 'America/Chicago')
+        'smtp_host'      => trim($_POST['smtp_host'] ?? ''),
+        'smtp_port'      => trim($_POST['smtp_port'] ?? '25'),
+        'smtp_auth'      => isset($_POST['smtp_auth']) ? '1' : '0',
+        'smtp_user'      => trim($_POST['smtp_user'] ?? ''),
+        'smtp_pass'      => trim($_POST['smtp_pass'] ?? ''),
+        'smtp_secure'    => $_POST['smtp_secure'] ?? 'none',
+        'mail_from'      => trim($_POST['mail_from'] ?? ''),
+        'mail_from_name' => trim($_POST['mail_from_name'] ?? ''),
+        'app_timezone'   => trim($_POST['app_timezone'] ?? 'America/Chicago')
     ];
 
     $stmt = $pdo->prepare("INSERT OR REPLACE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
