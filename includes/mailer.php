@@ -444,7 +444,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0f172a" style="background-color: #0f172a; border-radius: 6px; overflow: hidden; border: 1px solid #334155;">' . "\r\n";
     $html .= '                <tr><td align="center" style="padding: 0; background-color: #090d16;">' . "\r\n";
-    $html .= '                    <img src="' . $imageSrc . '" alt="Flight Area Map" width="584" height="520" style="width: 100%; max-width: 584px; height: auto; display: block; border: 0;" />' . "\r\n";
+    $html .= '                    <img src="' . $imageSrc . '" alt="Flight Area Map" width="584" height="520" style="width: 584px; max-width: 100%; height: 520px; display: block; border: 0; object-fit: cover;" />' . "\r\n";
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
     // Mission Scope
