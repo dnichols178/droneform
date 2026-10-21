@@ -33,10 +33,10 @@ function initFlightPlannerMap() {
 
     window.flightMap = map;
 
-    // Pure 90° Flat Top-Down Ortho Satellite Imagery with full CORS support
-    L.tileLayer('https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 19,
-        crossOrigin: 'anonymous'
+    // Pure 90° Flat Top-Down Nadir Satellite (Zoom up to 20 without 404s)
+    L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+        maxZoom: 20,
+        subdomains: ['0', '1', '2', '3']
     }).addTo(map);
 
     setTimeout(() => {
@@ -252,34 +252,40 @@ function initFlightPlannerMap() {
         detectAirspaceClass(centerLat, centerLng);
     }
 
-    // High-resolution top-down snapshot generator (CORS safe, no taint errors)
+    // 1:1 Isometric Center-Crop Snapshot Generator (Zero aspect-ratio squishing)
     window.generateMapSnapshot = function() {
         const input = document.getElementById('map_image_base64');
         if (!input) return;
 
+        const mapContainer = document.getElementById('flight-polygon-map');
+        if (!mapContainer) return;
+
+        const targetWidth = 584;
+        const targetHeight = 520;
+
         const canvas = document.createElement('canvas');
-        canvas.width = 584;
-        canvas.height = 320;
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
         ctx.fillStyle = '#0f172a';
-        ctx.fillRect(0, 0, 584, 320);
+        ctx.fillRect(0, 0, targetWidth, targetHeight);
 
-        const mapContainer = document.getElementById('flight-polygon-map');
-        if (!mapContainer) return;
         const mapRect = mapContainer.getBoundingClientRect();
+        // Exact 1:1 offsets centered in the container without anisotropic stretching
+        const shiftX = (mapRect.width - targetWidth) / 2;
+        const shiftY = (mapRect.height - targetHeight) / 2;
+
         const tiles = mapContainer.querySelectorAll('.leaflet-tile-loaded');
 
         try {
             tiles.forEach(tile => {
                 if (tile.naturalWidth && tile.complete) {
                     const rect = tile.getBoundingClientRect();
-                    const x = (rect.left - mapRect.left) * (584 / mapRect.width);
-                    const y = (rect.top - mapRect.top) * (320 / mapRect.height);
-                    const w = rect.width * (584 / mapRect.width);
-                    const h = rect.height * (320 / mapRect.height);
-                    ctx.drawImage(tile, x, y, w, h);
+                    const x = (rect.left - mapRect.left) - shiftX;
+                    const y = (rect.top - mapRect.top) - shiftY;
+                    ctx.drawImage(tile, x, y, rect.width, rect.height);
                 }
             });
 
@@ -287,8 +293,8 @@ function initFlightPlannerMap() {
                 ctx.beginPath();
                 polygonPoints.forEach((p, idx) => {
                     const pt = map.latLngToContainerPoint(p);
-                    const x = pt.x * (584 / mapRect.width);
-                    const y = pt.y * (320 / mapRect.height);
+                    const x = pt.x - shiftX;
+                    const y = pt.y - shiftY;
                     if (idx === 0) ctx.moveTo(x, y);
                     else ctx.lineTo(x, y);
                 });
@@ -300,7 +306,7 @@ function initFlightPlannerMap() {
                 ctx.stroke();
             }
 
-            // HUD Overlays
+            // Top HUD
             ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
             ctx.fillRect(10, 10, 310, 42);
             ctx.strokeStyle = '#334155';
@@ -317,7 +323,26 @@ function initFlightPlannerMap() {
             ctx.font = '10px sans-serif';
             ctx.fillText(`Footprint: ${acres} Ac | Ceiling: ${alt} ft AGL`, 20, 42);
 
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.80);
+            // Bottom Telemetry Bar
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+            ctx.fillRect(10, targetHeight - 34, targetWidth - 20, 26);
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(10, targetHeight - 34, targetWidth - 20, 26);
+
+            const latVal = document.getElementById('latitude') ? parseFloat(document.getElementById('latitude').value).toFixed(6) : '';
+            const lngVal = document.getElementById('longitude') ? parseFloat(document.getElementById('longitude').value).toFixed(6) : '';
+            const airClass = document.getElementById('airspace_class') ? document.getElementById('airspace_class').value : 'G';
+
+            ctx.fillStyle = '#f8fafc';
+            ctx.font = '10px sans-serif';
+            ctx.fillText(`Centroid: ${latVal}, ${lngVal}`, 20, targetHeight - 17);
+
+            ctx.fillStyle = (airClass === 'G' ? '#22c55e' : '#f59e0b');
+            ctx.font = 'bold 10px sans-serif';
+            ctx.fillText(`Airspace: Class ${airClass}`, targetWidth - 140, targetHeight - 17);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
             input.value = dataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
         } catch (e) {
             console.warn('Canvas snapshot skipped:', e);
