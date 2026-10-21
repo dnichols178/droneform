@@ -33,10 +33,10 @@ function initFlightPlannerMap() {
 
     window.flightMap = map;
 
-    // Pure 90° Flat Top-Down Nadir Satellite (Zoom up to 20 without 404s)
-    L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
-        maxZoom: 20,
-        subdomains: ['0', '1', '2', '3']
+    // USGS National Map High-Resolution Orthoimagery with Anonymous CORS for HTML5 Canvas Export
+    L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 18,
+        crossOrigin: 'anonymous'
     }).addTo(map);
 
     setTimeout(() => {
@@ -70,6 +70,12 @@ function initFlightPlannerMap() {
                     weight: 3
                 }).addTo(map);
                 map.fitBounds(drawnPolygon.getBounds(), { padding: [40, 40] });
+
+                polygonPoints = latLngs.map(pt => L.latLng(pt[0], pt[1]));
+                // Automatically generate snapshot once tiles settle
+                map.once('load tilesloaded', () => {
+                    setTimeout(() => window.generateMapSnapshot(), 300);
+                });
             }
         } catch (e) {
             console.error('Failed to parse existing polygon GeoJSON', e);
@@ -185,7 +191,9 @@ function initFlightPlannerMap() {
         }).addTo(map);
 
         updateTelemetry();
-        window.generateMapSnapshot();
+        setTimeout(() => {
+            window.generateMapSnapshot();
+        }, 150);
     }
 
     function resetPolygon() {
@@ -201,6 +209,8 @@ function initFlightPlannerMap() {
         if (acresDisplay) acresDisplay.textContent = '0.00';
         if (centerDisplay) centerDisplay.textContent = `${defaultLat}, ${defaultLng}`;
         if (acresInput) acresInput.value = '0';
+        const snapshotInput = document.getElementById('map_image_base64');
+        if (snapshotInput) snapshotInput.value = '';
         if (statusText) statusText.textContent = 'Click "Draw Flight Polygon" to plot mission area';
         if (drawBtn) {
             drawBtn.textContent = '⬟ Draw Flight Polygon';
@@ -273,11 +283,10 @@ function initFlightPlannerMap() {
         ctx.fillRect(0, 0, targetWidth, targetHeight);
 
         const mapRect = mapContainer.getBoundingClientRect();
-        // Exact 1:1 offsets centered in the container without anisotropic stretching
         const shiftX = (mapRect.width - targetWidth) / 2;
         const shiftY = (mapRect.height - targetHeight) / 2;
 
-        const tiles = mapContainer.querySelectorAll('.leaflet-tile-loaded');
+        const tiles = mapContainer.querySelectorAll('.leaflet-tile-pane img');
 
         try {
             tiles.forEach(tile => {
@@ -344,8 +353,14 @@ function initFlightPlannerMap() {
 
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
             input.value = dataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
+
+            // Live update Step 3 preview element if on page
+            const previewImg = document.getElementById('step3_map_preview');
+            if (previewImg) {
+                previewImg.src = dataUrl;
+            }
         } catch (e) {
-            console.warn('Canvas snapshot skipped:', e);
+            console.error('Canvas snapshot error:', e);
         }
     };
 }
