@@ -19,37 +19,51 @@ if (!$flight) {
 
 $err = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $actualStart = $_POST['actual_start_time'] ?? '';
-    $actualEnd = $_POST['actual_end_time'] ?? '';
-    $totalMinutes = (int)($_POST['total_flight_minutes'] ?? 0);
-    $maxAltitudeReached = (int)($_POST['max_altitude_reached'] ?? 0);
-    $battStart = (int)($_POST['battery_start_pct'] ?? 100);
-    $battEnd = (int)($_POST['battery_end_pct'] ?? 20);
-    $pilotNotes = trim($_POST['pilot_notes'] ?? '');
-    $incidentOccurred = isset($_POST['incident_occurred']) ? 1 : 0;
-    $incidentDesc = trim($_POST['incident_description'] ?? '');
+    // 1. Handle Flight Cancellation
+    if (isset($_POST['action_cancel'])) {
+        try {
+            $updateStmt = $pdo->prepare("UPDATE flights SET status = 'CANCELED' WHERE id = ?");
+            $updateStmt->execute([$flightId]);
 
-    try {
-        $logInsert = $pdo->prepare("
-            INSERT INTO flight_logs (
-                flight_id, actual_start_time, actual_end_time, total_flight_minutes,
-                max_altitude_reached, battery_start_pct, battery_end_pct, pilot_notes,
-                incident_occurred, incident_description, logged_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        $logInsert->execute([
-            $flightId, $actualStart, $actualEnd, $totalMinutes,
-            $maxAltitudeReached, $battStart, $battEnd, $pilotNotes,
-            $incidentOccurred, $incidentDesc, $_SESSION['user_id']
-        ]);
+            header("Location: flights.php");
+            exit;
+        } catch (PDOException $e) {
+            $err = "Error canceling flight: " . $e->getMessage();
+        }
+    } else {
+        // 2. Handle Standard Post-Flight Log Submission
+        $actualStart = $_POST['actual_start_time'] ?? '';
+        $actualEnd = $_POST['actual_end_time'] ?? '';
+        $totalMinutes = (int)($_POST['total_flight_minutes'] ?? 0);
+        $maxAltitudeReached = (int)($_POST['max_altitude_reached'] ?? 0);
+        $battStart = (int)($_POST['battery_start_pct'] ?? 100);
+        $battEnd = (int)($_POST['battery_end_pct'] ?? 20);
+        $pilotNotes = trim($_POST['pilot_notes'] ?? '');
+        $incidentOccurred = isset($_POST['incident_occurred']) ? 1 : 0;
+        $incidentDesc = trim($_POST['incident_description'] ?? '');
 
-        // Update flight status
-        $pdo->prepare("UPDATE flights SET status = 'COMPLETED' WHERE id = ?")->execute([$flightId]);
+        try {
+            $logInsert = $pdo->prepare("
+                INSERT INTO flight_logs (
+                    flight_id, actual_start_time, actual_end_time, total_flight_minutes,
+                    max_altitude_reached, battery_start_pct, battery_end_pct, pilot_notes,
+                    incident_occurred, incident_description, logged_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $logInsert->execute([
+                $flightId, $actualStart, $actualEnd, $totalMinutes,
+                $maxAltitudeReached, $battStart, $battEnd, $pilotNotes,
+                $incidentOccurred, $incidentDesc, $_SESSION['user_id']
+            ]);
 
-        header("Location: flight_details.php?id=$flightId");
-        exit;
-    } catch (PDOException $e) {
-        $err = "Error recording log: " . $e->getMessage();
+            // Update flight status
+            $pdo->prepare("UPDATE flights SET status = 'COMPLETED' WHERE id = ?")->execute([$flightId]);
+
+            header("Location: flight_details.php?id=$flightId");
+            exit;
+        } catch (PDOException $e) {
+            $err = "Error recording log: " . $e->getMessage();
+        }
     }
 }
 ?>
@@ -65,11 +79,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="grid grid-cols-3">
                 <div class="form-group">
                     <label for="actual_start_time">Actual Wheels-Up Time</label>
-                    <input type="time" name="actual_start_time" id="actual_start_time" class="form-control" value="<?= $flight['start_time'] ?>" required>
+                    <input type="time" name="actual_start_time" id="actual_start_time" class="form-control" value="<?= htmlspecialchars($flight['start_time']) ?>" required>
                 </div>
                 <div class="form-group">
                     <label for="actual_end_time">Actual Wheels-Down Time</label>
-                    <input type="time" name="actual_end_time" id="actual_end_time" class="form-control" value="<?= $flight['end_time'] ?>" required>
+                    <input type="time" name="actual_end_time" id="actual_end_time" class="form-control" value="<?= htmlspecialchars($flight['end_time']) ?>" required>
                 </div>
                 <div class="form-group">
                     <label for="total_flight_minutes">Total Airtime (Minutes)</label>
@@ -80,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="grid grid-cols-3">
                 <div class="form-group">
                     <label for="max_altitude_reached">Max Altitude Reached (ft AGL)</label>
-                    <input type="number" name="max_altitude_reached" id="max_altitude_reached" class="form-control" value="<?= $flight['max_altitude'] ?>" required>
+                    <input type="number" name="max_altitude_reached" id="max_altitude_reached" class="form-control" value="<?= htmlspecialchars($flight['max_altitude']) ?>" required>
                 </div>
                 <div class="form-group">
                     <label for="battery_start_pct">Initial Battery Charge (%)</label>
@@ -114,9 +128,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             </div>
 
-            <div style="margin-top: 1.5rem; text-align: right;">
-                <a href="flight_details.php?id=<?= $flightId ?>" class="btn btn-outline">Cancel</a>
-                <button type="submit" class="btn btn-primary" style="margin-left: 0.5rem;">Commit Post Flight Record</button>
+            <div style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                <button type="submit" 
+                        name="action_cancel" 
+                        value="1" 
+                        formnovalidate 
+                        class="btn btn-outline" 
+                        style="color: var(--danger); border-color: var(--danger);" 
+                        onclick="return confirm('Are you sure you want to mark this flight as Canceled? The flight plan will remain saved, but no post-flight telemetry will be recorded.');">
+                    Flight Canceled
+                </button>
+                <div>
+                    <a href="flight_details.php?id=<?= $flightId ?>" class="btn btn-outline">Back</a>
+                    <button type="submit" class="btn btn-primary" style="margin-left: 0.5rem;">Commit Post Flight Record</button>
+                </div>
             </div>
         </form>
     </div>
