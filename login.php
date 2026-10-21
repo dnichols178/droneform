@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body class="auth-wrapper">
     <div class="auth-card">
         <div class="auth-header">
-            <img width="100%" src="https://fourriversnuclearpartnership.com/sites/default/files/frnp_logo.png">
+            <img width="100%" src="./assets/frnp_logo.png">
             <p>Drone Flight Management and Notification System</p>
         </div>
 
@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="password" id="password" name="password" class="form-control" required>
             </div>
 
-            <button type="submit" class="btn btn-primary btn-block">Authenticate &amp; Enter</button>
+            <button type="submit" class="btn btn-primary btn-block">Login</button>
         </form>
     </div>
 </body>
