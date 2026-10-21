@@ -2,6 +2,8 @@
 $pageTitle = 'Post Flight Log';
 $currentPage = 'flights';
 require_once __DIR__ . '/includes/header.php';
+
+requireLogin();
 $pdo = getDB();
 
 $flightId = (int)($_GET['flight_id'] ?? 0);
