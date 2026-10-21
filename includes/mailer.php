@@ -101,15 +101,20 @@ function fetchSingleTile(string $url): string {
 }
 
 /**
- * Generates raw PNG binary in 584x520 native dimensions with 1:1 isometric projection
+ * Generates raw PNG binary in strict 584x520 native dimensions with 1:1 isometric projection
  */
 function generateFlightAreaImageBinary(array $flight): string {
+    // If a valid 584x520 client snapshot exists in DB, verify height before returning
     if (!empty($flight['map_image_base64'])) {
         $clean = preg_replace('#^data:image/[^;]+;base64,#i', '', trim($flight['map_image_base64']));
         if (strlen($clean) > 200) {
             $decoded = base64_decode($clean);
             if (!empty($decoded) && strlen($decoded) > 500) {
-                return $decoded;
+                // Verify image height is at least 480px to reject old stretched 320px snapshots
+                $size = @getimagesizefromstring($decoded);
+                if ($size && $size[1] >= 480) {
+                    return $decoded;
+                }
             }
         }
     }
@@ -191,7 +196,7 @@ function generateFlightAreaImageBinary(array $flight): string {
 
     for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
         for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
-            $cacheFile = $cacheDir . "/iso520_{$optimalZoom}_{$ty}_{$tx}.jpg";
+            $cacheFile = $cacheDir . "/nadir520_{$optimalZoom}_{$ty}_{$tx}.jpg";
             $tileRaw = '';
 
             if (file_exists($cacheFile) && filesize($cacheFile) > 500) {
@@ -384,18 +389,27 @@ function generateFlightAreaSvgRaw(array $flight): string {
 }
 
 function generateFlightAreaImageBase64(array $flight): string {
+    // 1. If valid 584x520 snapshot exists in DB
     if (!empty($flight['map_image_base64'])) {
         $clean = preg_replace('#^data:image/[^;]+;base64,#i', '', trim($flight['map_image_base64']));
         if (strlen($clean) > 200) {
-            return 'data:image/jpeg;base64,' . $clean;
+            $decoded = base64_decode($clean);
+            if (!empty($decoded) && strlen($decoded) > 500) {
+                $size = @getimagesizefromstring($decoded);
+                if ($size && $size[1] >= 480) {
+                    return 'data:image/jpeg;base64,' . $clean;
+                }
+            }
         }
     }
 
+    // 2. Generate stitched PNG using 584x520 native resolution
     $binary = generateFlightAreaImageBinary($flight);
     if (!empty($binary) && strlen($binary) > 200) {
         return 'data:image/png;base64,' . base64_encode($binary);
     }
 
+    // 3. Fallback vector SVG
     return 'data:image/svg+xml;base64,' . base64_encode(generateFlightAreaSvgRaw($flight));
 }
 
@@ -440,11 +454,11 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     }
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
-    // Embedded 90° Top-Down Flight Map (584x520 native resolution)
+    // Embedded 90° Top-Down Flight Map with exact aspect ratio
     $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0f172a" style="background-color: #0f172a; border-radius: 6px; overflow: hidden; border: 1px solid #334155;">' . "\r\n";
     $html .= '                <tr><td align="center" style="padding: 0; background-color: #090d16;">' . "\r\n";
-    $html .= '                    <img src="' . $imageSrc . '" alt="Flight Area Map" width="584" height="520" style="width: 584px; max-width: 100%; height: 520px; display: block; border: 0; object-fit: cover;" />' . "\r\n";
+    $html .= '                    <img src="' . $imageSrc . '" alt="Flight Area Map" width="584" height="520" style="width: 584px; max-width: 100%; height: auto; display: block; border: 0;" />' . "\r\n";
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
     // Mission Scope
@@ -552,7 +566,7 @@ function buildPostFlightReminderHtml(array $flight, array $creator, ?string $ima
     $html .= '          <p>The post-flight telemetry log for flight plan <strong>' . htmlspecialchars($flight['flight_number']) . '</strong> scheduled on <strong>' . htmlspecialchars($flight['flight_date']) . '</strong> has not yet been recorded (> 24 hours elapsed).</p>' . "\r\n";
     $html .= '          <div style="text-align: center; margin: 20px 0;"><a href="' . htmlspecialchars($logUrl) . '" style="background:#0284c7; color:#fff; padding:10px 20px; text-decoration:none; border-radius:5px; font-weight:bold;">Submit Post-Flight Log Now</a></div>' . "\r\n";
     $html .= '        </td></tr>' . "\r\n";
-    $html .= '        <tr><td align="center" style="padding: 0 28px 20px 28px;"><img src="' . $imageSrc . '" alt="Flight Area" width="584" height="520" style="width:100%; max-width:584px; display:block; border-radius:4px;" /></td></tr>' . "\r\n";
+    $html .= '        <tr><td align="center" style="padding: 0 28px 20px 28px;"><img src="' . $imageSrc . '" alt="Flight Area" width="584" height="520" style="width: 100%; max-width: 584px; display: block; border-radius: 4px;" /></td></tr>' . "\r\n";
     $html .= '      </table></td></tr></table></body></html>' . "\r\n";
     return $html;
 }
@@ -828,7 +842,7 @@ function checkAndSendPostFlightReminders(): int {
     $sql = "
         SELECT f.*, 
                creator.full_name AS creator_name, 
-               creator.email AS creator_email,
+               creator.email AS creator_email, 
                pilot.full_name AS pilot_name
         FROM flights f
         JOIN users creator ON COALESCE(f.created_by, f.pilot_id) = creator.id
