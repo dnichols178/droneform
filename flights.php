@@ -68,7 +68,9 @@ $flights = $stmt->fetchAll();
                             <td><?= htmlspecialchars($f['pilot_name']) ?></td>
                             <td><?= htmlspecialchars($f['flight_date']) ?></td>
                             <td>
-                                <?php if (!empty($f['flight_log_id'])): ?>
+                                <?php if (strtoupper($f['status'] ?? '') === 'CANCELED'): ?>
+                                    <span class="badge badge-danger">Canceled</span>
+                                <?php elseif (!empty($f['flight_log_id'])): ?>
                                     <span class="badge badge-success">Complete</span>
                                 <?php else: ?>
                                     <span class="badge badge-warning">In Progress</span>
