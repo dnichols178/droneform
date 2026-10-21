@@ -11,13 +11,13 @@ $activeLAANC = $pdo->query("SELECT COUNT(*) FROM flights WHERE laanc_status IN (
 $loggedHours = $pdo->query("SELECT COALESCE(SUM(total_flight_minutes), 0) FROM flight_logs")->fetchColumn();
 $loggedHoursFormat = round($loggedHours / 60, 1);
 
-// Query only flights that are "In Progress" (no debrief log committed and not marked COMPLETED)
+// Upcoming Flights Query: Ordered by flight plan number, highest first
 $inProgressFlights = $pdo->query("
     SELECT f.*, u.full_name AS pilot_name, fl.id AS flight_log_id
     FROM flights f
     JOIN users u ON f.pilot_id = u.id
     LEFT JOIN flight_logs fl ON fl.flight_id = f.id
-    WHERE fl.id IS NULL AND (f.status != 'COMPLETED' OR f.status IS NULL)
+	WHERE fl.id IS NULL AND (f.status != 'COMPLETED' OR f.status IS NULL)
     ORDER BY f.flight_number DESC
 ")->fetchAll();
 ?>
@@ -47,7 +47,7 @@ $inProgressFlights = $pdo->query("
 
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">In-Progress Flight Missions</h2>
+        <h2 class="card-title">Upcoming Flights</h2>
         <?php if (isLoggedIn()): ?>
             <a href="flight_create.php" class="btn btn-primary btn-sm">+ Plan Flight</a>
         <?php endif; ?>
@@ -66,19 +66,19 @@ $inProgressFlights = $pdo->query("
                 </thead>
                 <tbody>
                     <?php if (empty($inProgressFlights)): ?>
-                        <tr>
-                            <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">
-                                No flights planned. Completed flight plans in <a href="flights.php">Flight Log</a>
+                              <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">
+                                No flights planned. Completed flight plans in 
+								<strong>
+								<a href="flights.php" style="color: var(--text-muted); text-decoration: none;">Flight Log.</a>
+								</strong>
                             </td>
                         </tr>
                     <?php else: foreach ($inProgressFlights as $f): ?>
                         <tr>
-                            <td><strong><a href="flight_details.php?id=<?= $f['id'] ?>"><?= htmlspecialchars($f['flight_number']) ?></a></strong></td>
+                            <td><strong><?= htmlspecialchars($f['flight_number']) ?></strong></td>
                             <td><?= htmlspecialchars($f['pilot_name']) ?></td>
                             <td><?= htmlspecialchars($f['flight_date']) ?> <?= htmlspecialchars($f['start_time']) ?></td>
-                            <td>
-                                <span class="badge badge-warning">In Progress</span>
-                            </td>
+                            <td><span class="badge badge-warning">In Progress</span></td>
                             <td>
                                 <a href="flight_details.php?id=<?= $f['id'] ?>" class="btn btn-outline btn-sm">Review</a>
                             </td>
