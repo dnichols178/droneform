@@ -61,8 +61,7 @@ function fetchSingleTile(string $url): string {
             CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
             CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             CURLOPT_HTTPHEADER     => [
-                'Accept: image/jpeg,image/png,image/*;q=0.8',
-                'Referer: https://clarity.maptiles.arcgis.com/'
+                'Accept: image/jpeg,image/png,image/*;q=0.8'
             ]
         ];
 
@@ -85,7 +84,7 @@ function fetchSingleTile(string $url): string {
         $ctx = stream_context_create([
             'http' => [
                 'timeout' => 4,
-                'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nReferer: https://clarity.maptiles.arcgis.com/\r\n"
+                'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
             ],
             'ssl' => [
                 'verify_peer'      => false,
@@ -101,6 +100,9 @@ function fetchSingleTile(string $url): string {
     return '';
 }
 
+/**
+ * Generates raw PNG binary in 584x520 native dimensions with 1:1 isometric projection
+ */
 function generateFlightAreaImageBinary(array $flight): string {
     if (!empty($flight['map_image_base64'])) {
         $clean = preg_replace('#^data:image/[^;]+;base64,#i', '', trim($flight['map_image_base64']));
@@ -117,7 +119,7 @@ function generateFlightAreaImageBinary(array $flight): string {
     }
 
     $width = 584;
-    $height = 320;
+    $height = 520;
 
     $lat = (float)($flight['latitude'] ?? 37.115191);
     $lng = (float)($flight['longitude'] ?? -88.811224);
@@ -143,16 +145,16 @@ function generateFlightAreaImageBinary(array $flight): string {
     $centerLat = ($minLat + $maxLat) / 2.0;
     $centerLng = ($minLng + $maxLng) / 2.0;
 
-    $optimalZoom = 15;
-    for ($z = 17; $z >= 13; $z--) {
+    $optimalZoom = 16;
+    for ($z = 19; $z >= 13; $z--) {
         $wPx = abs(mercatorLon2X($maxLng, $z) - mercatorLon2X($minLng, $z));
         $hPx = abs(mercatorLat2Y($maxLat, $z) - mercatorLat2Y($minLat, $z));
-        if ($wPx <= ($width * 0.65) && $hPx <= ($height * 0.65)) {
+        if ($wPx <= ($width * 0.60) && $hPx <= ($height * 0.60)) {
             $optimalZoom = $z;
             break;
         }
     }
-    $optimalZoom = min(17, max(13, $optimalZoom));
+    $optimalZoom = min(19, max(14, $optimalZoom));
 
     $img = imagecreatetruecolor($width, $height);
     imagealphablending($img, true);
@@ -189,18 +191,17 @@ function generateFlightAreaImageBinary(array $flight): string {
 
     for ($tx = $tileMinX; $tx <= $tileMaxX; $tx++) {
         for ($ty = $tileMinY; $ty <= $tileMaxY; $ty++) {
-            $cacheFile = $cacheDir . "/clarity_{$optimalZoom}_{$ty}_{$tx}.jpg";
+            $cacheFile = $cacheDir . "/iso520_{$optimalZoom}_{$ty}_{$tx}.jpg";
             $tileRaw = '';
 
             if (file_exists($cacheFile) && filesize($cacheFile) > 500) {
                 $tileRaw = file_get_contents($cacheFile);
             } else {
-                // Top-down nadir Clarity Satellite layer
-                $tileUrl = "https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
+                $tileUrl = "https://mt1.google.com/vt/lyrs=s&x={$tx}&y={$ty}&z={$optimalZoom}";
                 $tileRaw = fetchSingleTile($tileUrl);
 
                 if (empty($tileRaw)) {
-                    $tileUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{$optimalZoom}/{$ty}/{$tx}";
+                    $tileUrl = "https://mt2.google.com/vt/lyrs=s&x={$tx}&y={$ty}&z={$optimalZoom}";
                     $tileRaw = fetchSingleTile($tileUrl);
                 }
 
@@ -321,7 +322,7 @@ function generateFlightAreaImageBinary(array $flight): string {
 
 function generateFlightAreaSvgRaw(array $flight): string {
     $width = 584;
-    $height = 320;
+    $height = 520;
 
     $lat = (float)($flight['latitude'] ?? 37.115191);
     $lng = (float)($flight['longitude'] ?? -88.811224);
@@ -439,11 +440,11 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     }
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
-    // Embedded Top-Down Satellite Map
+    // Embedded 90° Top-Down Flight Map (584x520 native resolution)
     $html .= '          <tr><td style="padding: 10px 28px;">' . "\r\n";
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0f172a" style="background-color: #0f172a; border-radius: 6px; overflow: hidden; border: 1px solid #334155;">' . "\r\n";
     $html .= '                <tr><td align="center" style="padding: 0; background-color: #090d16;">' . "\r\n";
-    $html .= '                    <img src="' . $imageSrc . '" alt="Flight Area Map" width="584" style="width: 100%; max-width: 584px; height: auto; display: block; border: 0;" />' . "\r\n";
+    $html .= '                    <img src="' . $imageSrc . '" alt="Flight Area Map" width="584" height="520" style="width: 100%; max-width: 584px; height: auto; display: block; border: 0;" />' . "\r\n";
     $html .= '                </td></tr></table></td></tr>' . "\r\n";
 
     // Mission Scope
@@ -551,7 +552,7 @@ function buildPostFlightReminderHtml(array $flight, array $creator, ?string $ima
     $html .= '          <p>The post-flight telemetry log for flight plan <strong>' . htmlspecialchars($flight['flight_number']) . '</strong> scheduled on <strong>' . htmlspecialchars($flight['flight_date']) . '</strong> has not yet been recorded (> 24 hours elapsed).</p>' . "\r\n";
     $html .= '          <div style="text-align: center; margin: 20px 0;"><a href="' . htmlspecialchars($logUrl) . '" style="background:#0284c7; color:#fff; padding:10px 20px; text-decoration:none; border-radius:5px; font-weight:bold;">Submit Post-Flight Log Now</a></div>' . "\r\n";
     $html .= '        </td></tr>' . "\r\n";
-    $html .= '        <tr><td align="center" style="padding: 0 28px 20px 28px;"><img src="' . $imageSrc . '" alt="Flight Area" width="584" style="width:100%; max-width:584px; display:block; border-radius:4px;" /></td></tr>' . "\r\n";
+    $html .= '        <tr><td align="center" style="padding: 0 28px 20px 28px;"><img src="' . $imageSrc . '" alt="Flight Area" width="584" height="520" style="width:100%; max-width:584px; display:block; border-radius:4px;" /></td></tr>' . "\r\n";
     $html .= '      </table></td></tr></table></body></html>' . "\r\n";
     return $html;
 }
