@@ -128,12 +128,11 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     $html .= '              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">' . "\r\n";
     
     $rows = [
-        'Target Facility'         => htmlspecialchars($flight['facility_name']),
+        'Facility'         => htmlspecialchars($flight['facility_name']),
         'Work Control'            => htmlspecialchars($flight['work_package']),
         'Operational Window'      => htmlspecialchars($flight['flight_date']) . ' (' . htmlspecialchars($flight['start_time']) . ' - ' . htmlspecialchars($flight['end_time']) . ' Local ' . $localTzName . ')',
         'Max Operating Ceiling'   => '<strong>' . htmlspecialchars($flight['max_altitude']) . ' ft AGL</strong>',
         'Centroid Coordinates'    => htmlspecialchars($flight['latitude']) . ', ' . htmlspecialchars($flight['longitude']),
-        'Operational Area'        => htmlspecialchars($flight['operational_acres']) . ' Acres',
         'UAS Aircraft Model'      => htmlspecialchars($flight['aircraft_model'])
     ];
 
@@ -150,7 +149,7 @@ function buildFlightNotificationHtml(array $flight, array $recipients, ?string $
     }
 
     $rows['Remote Pilot in Command'] = htmlspecialchars($flight['pilot_name']);
-    $rows['Emergency Phone Contact'] = htmlspecialchars($flight['pilot_phone'] ?: 'N/A');
+    $rows['Phone Contact'] = htmlspecialchars($flight['pilot_phone'] ?: 'N/A');
     $rows['RPIC Email Contact']      = htmlspecialchars($flight['pilot_email'] ?: 'N/A');
 
     $i = 0;
