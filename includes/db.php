@@ -165,6 +165,18 @@ function initSchema(PDO $pdo): void {
         FOREIGN KEY (user_id) REFERENCES users(id)
     );");
 
+    // 10. Password Reset Tokens Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS password_resets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token_hash);");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);");
+
     $defaultAdminPass = password_hash('Admin@107', PASSWORD_DEFAULT);
     $pdo->prepare("INSERT OR IGNORE INTO users (username, password_hash, full_name, email, phone, role)
                    VALUES ('admin', ?, 'Chief Remote Pilot', 'admin@uas-ops.local', '555-0107', 'admin')")
@@ -175,15 +187,15 @@ function initSchema(PDO $pdo): void {
                 ('Aviation Safety Officer', 'safety@uas-ops.local', 'Airspace & Safety Management');");
 
     $defaultSettings = [
-        'smtp_host'     => '127.0.0.1',
-        'smtp_port'     => '25',
-        'smtp_auth'     => '0',
-        'smtp_user'     => '',
-        'smtp_pass'     => '',
-        'smtp_secure'   => 'none',
-        'mail_from'     => 'flight-ops@uas-part107.com',
-        'mail_from_name'=> 'FAA Part 107 Flight Operations',
-        'app_timezone'  => 'America/Chicago'
+        'smtp_host'      => '127.0.0.1',
+        'smtp_port'      => '25',
+        'smtp_auth'      => '0',
+        'smtp_user'      => '',
+        'smtp_pass'      => '',
+        'smtp_secure'    => 'none',
+        'mail_from'      => 'flight-ops@uas-part107.com',
+        'mail_from_name' => 'FAA Part 107 Flight Operations',
+        'app_timezone'   => 'America/Chicago'
     ];
     $stmt = $pdo->prepare("INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
     foreach ($defaultSettings as $k => $v) {
@@ -223,16 +235,28 @@ function migrateSchema(PDO $pdo): void {
         FOREIGN KEY (user_id) REFERENCES users(id)
     );");
 
+    // Ensure password_resets table and indices exist on existing databases
+    $pdo->exec("CREATE TABLE IF NOT EXISTS password_resets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token_hash);");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);");
+
     $defaultSettings = [
-        'smtp_host'     => '127.0.0.1',
-        'smtp_port'     => '25',
-        'smtp_auth'     => '0',
-        'smtp_user'     => '',
-        'smtp_pass'     => '',
-        'smtp_secure'   => 'none',
-        'mail_from'     => 'flight-ops@uas-part107.com',
-        'mail_from_name'=> 'FAA Part 107 Flight Operations',
-        'app_timezone'  => 'America/Chicago'
+        'smtp_host'      => '127.0.0.1',
+        'smtp_port'      => '25',
+        'smtp_auth'      => '0',
+        'smtp_user'      => '',
+        'smtp_pass'      => '',
+        'smtp_secure'    => 'none',
+        'mail_from'      => 'flight-ops@uas-part107.com',
+        'mail_from_name' => 'FAA Part 107 Flight Operations',
+        'app_timezone'   => 'America/Chicago'
     ];
     $stmt = $pdo->prepare("INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
     foreach ($defaultSettings as $k => $v) {
