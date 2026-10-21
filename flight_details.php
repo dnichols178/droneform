@@ -16,8 +16,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $rawSnap = trim($_POST['map_image_base64'] ?? '');
     if (!empty($rawSnap)) {
         $imgBase64 = str_starts_with($rawSnap, 'data:') ? $rawSnap : ('data:image/jpeg;base64,' . $rawSnap);
-        $pdo->prepare("UPDATE flights SET map_image_base64 = ? WHERE id = ? AND (map_image_base64 IS NULL OR map_image_base64 = '')")->execute([$imgBase64, $flightId]);
+        // Overwrite unconditionally so corrupted or black snapshots are replaced
+        $pdo->prepare("UPDATE flights SET map_image_base64 = ? WHERE id = ?")->execute([$imgBase64, $flightId]);
     }
+    echo json_encode(['status' => 'ok']);
     exit;
 }
 
@@ -177,10 +179,10 @@ $flightLog = $logStmt->fetch();
 <?php if ($currentStep === '3'): ?>
     <!-- STEP 3: FULL WIDTH OUTLOOK EMAIL REVIEW -->
     <?php
-    $previewFrom = "FRNP Drone Flight Operations" . " <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
+    $previewFrom = "FRNP Drone Flight Operations <" . getSystemSetting('mail_from', 'flight-ops@uas-part107.com') . ">";
     $previewTo = implode(', ', $allRecipients);
     $previewSubject = "FRNP Flight Notification " . $flight['flight_number'];
-    // Pass direct base64 image representation
+    // Pass direct base64 image representation untouched
     $previewHtml = buildFlightNotificationHtml($flight, $allRecipients);
     ?>
     <div class="card" style="border-top: 4px solid var(--success); max-width: 960px; margin: 0 auto 2rem auto;">
@@ -406,7 +408,7 @@ $flightLog = $logStmt->fetch();
                                         X Cancel &amp; Delete Flight Plan
                                     </button>
                                 </form>
-                                <a href="flight_details.php?id=<?= $flight['id'] ?>&step=review" class="btn btn-primary">
+                                <a href="flight_details.php?id=<?= $flight['id'] ?>&step=review" id="btn-proceed-review" class="btn btn-primary">
                                     Review and Send Notification →
                                 </a>
                             </div>
@@ -494,6 +496,11 @@ $flightLog = $logStmt->fetch();
                 </div>
                 <input type="hidden" id="polygon_geojson" value="<?= htmlspecialchars($flight['polygon_geojson'] ?? '') ?>">
                 <input type="hidden" id="map_image_base64" value="<?= htmlspecialchars($flight['map_image_base64'] ?? '') ?>">
+                <input type="hidden" id="operational_acres" value="<?= htmlspecialchars($flight['operational_acres'] ?? '0') ?>">
+                <input type="hidden" id="max_altitude" value="<?= htmlspecialchars($flight['max_altitude'] ?? '200') ?>">
+                <input type="hidden" id="latitude" value="<?= htmlspecialchars($flight['latitude'] ?? '') ?>">
+                <input type="hidden" id="longitude" value="<?= htmlspecialchars($flight['longitude'] ?? '') ?>">
+                <input type="hidden" id="airspace_class" value="<?= htmlspecialchars($flight['airspace_class'] ?? 'G') ?>">
                 <div class="map-telemetry-bar">
                     <div class="map-telemetry-item">Centroid: <strong><?= $flight['latitude'] ?>, <?= $flight['longitude'] ?></strong></div>
                     <div class="map-telemetry-item">Ceiling: <strong><?= $flight['max_altitude'] ?> ft</strong></div>
@@ -528,22 +535,43 @@ $flightLog = $logStmt->fetch();
 <?php endif; ?>
 
 <script>
-// Auto-capture live satellite map for existing flight records that don't yet have a snapshot
+// Auto-capture live satellite map and handle navigation sync
 document.addEventListener('DOMContentLoaded', function () {
     const hiddenSnap = document.getElementById('map_image_base64');
-    if (hiddenSnap && (!hiddenSnap.value || hiddenSnap.value.trim() === '')) {
+    const reviewBtn = document.getElementById('btn-proceed-review');
+
+    function syncSnapshot(callback) {
+        if (typeof window.generateMapSnapshot === 'function') {
+            window.generateMapSnapshot();
+        }
+        if (hiddenSnap && hiddenSnap.value && hiddenSnap.value.trim() !== '') {
+            const fd = new FormData();
+            fd.append('action', 'save_map_snapshot');
+            fd.append('map_image_base64', hiddenSnap.value);
+            fetch('flight_details.php?id=<?= $flightId ?>', { method: 'POST', body: fd })
+                .then(() => { if (callback) callback(); })
+                .catch(() => { if (callback) callback(); });
+        } else {
+            if (callback) callback();
+        }
+    }
+
+    // Auto-capture once tiles load on Step 1 or Step 2
+    if (hiddenSnap) {
         setTimeout(function() {
-            if (typeof window.generateMapSnapshot === 'function') {
-                window.generateMapSnapshot();
-                if (hiddenSnap.value) {
-                    const fd = new FormData();
-                    fd.append('action', 'save_map_snapshot');
-                    // Value is clean base64 string
-                    fd.append('map_image_base64', hiddenSnap.value);
-                    fetch('flight_details.php?id=<?= $flightId ?>', { method: 'POST', body: fd });
-                }
-            }
+            syncSnapshot();
         }, 1200);
+    }
+
+    // Ensure snapshot is synced before navigating into Step 3
+    if (reviewBtn) {
+        reviewBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const targetUrl = this.href;
+            syncSnapshot(function() {
+                window.location.href = targetUrl;
+            });
+        });
     }
 });
 </script>
