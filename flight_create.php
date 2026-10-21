@@ -6,7 +6,7 @@ require_once __DIR__ . '/includes/db.php';
 requireLogin();
 $pdo = getDB();
 $currentUser = getCurrentUser();
-$isAdmin = ($currentUser && strtolower(trim($currentUser['role'])) === 'admin');
+$isAdmin = isAdmin();
 
 function getFiscalYearTwoDigit(?string $dateStr = null): string {
     $ts = !empty($dateStr) ? strtotime($dateStr) : time();
