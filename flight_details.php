@@ -147,7 +147,7 @@ if (isset($_GET['msg'])) {
     if ($_GET['msg'] === 'notification_sent') $actionMsg = "Flight plan notification has been sent to recipients!";
 }
 
-// Post-flight log status
+// Post-flight log status & data (flight_id is UNIQUE, no ordering or limit required)
 $logStmt = $pdo->prepare("SELECT * FROM flight_logs WHERE flight_id = ?");
 $logStmt->execute([$flightId]);
 $flightLog = $logStmt->fetch();
@@ -439,6 +439,68 @@ $flightLog = $logStmt->fetch();
                         </div>
                     </div>
                     <div class="card-body">
+                        <!-- POST-FLIGHT LOG DATA (Rendered when completed) -->
+                        <?php if ($flightLog): ?>
+                            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 1.25rem; margin-bottom: 1.5rem;">
+                                <h3 style="font-size: 1.05rem; color: #166534; margin-top: 0; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <span>✓</span> Post-Flight Operational Log
+                                    <?php if (!empty($flightLog['created_at'])): ?>
+                                        <small style="font-size: 0.8rem; font-weight: normal; color: #15803d; margin-left: auto;">
+                                            Logged: <?= htmlspecialchars($flightLog['created_at']) ?>
+                                        </small>
+                                    <?php endif; ?>
+                                </h3>
+                                <table class="table" style="margin-bottom: 0; background: transparent;">
+                                    <?php if (!empty($flightLog['actual_start_time']) || !empty($flightLog['actual_end_time'])): ?>
+                                        <tr>
+                                            <th style="width: 35%;">Actual Flight Time</th>
+                                            <td>
+                                                <?= htmlspecialchars($flightLog['actual_start_time'] ?? '') ?> 
+                                                <?= (!empty($flightLog['actual_start_time']) && !empty($flightLog['actual_end_time'])) ? ' - ' : '' ?>
+                                                <?= htmlspecialchars($flightLog['actual_end_time'] ?? '') ?>
+                                            </td>
+                                        </tr>
+                                    <?php endif; ?>
+                                    <tr>
+                                        <th style="width: 35%;">Flight Duration</th>
+                                        <td><strong><?= htmlspecialchars((string)($flightLog['total_flight_minutes'] ?? '0')) ?> minutes</strong></td>
+                                    </tr>
+                                    <tr>
+                                        <th>Peak Altitude</th>
+                                        <td><?= htmlspecialchars((string)($flightLog['max_altitude_reached'] ?? $flight['max_altitude'])) ?> ft AGL</td>
+                                    </tr>
+                                    <?php if (isset($flightLog['battery_start_pct']) || isset($flightLog['battery_end_pct'])): ?>
+                                        <tr>
+                                            <th>Battery (Start / End)</th>
+                                            <td>
+                                                <?= htmlspecialchars((string)($flightLog['battery_start_pct'] ?? '--')) ?>% / 
+                                                <?= htmlspecialchars((string)($flightLog['battery_end_pct'] ?? '--')) ?>%
+                                            </td>
+                                        </tr>
+                                    <?php endif; ?>
+                                    <tr>
+                                        <th>Incidents / Malfunctions</th>
+                                        <td>
+                                            <?php if (!empty($flightLog['incident_occurred']) && !empty($flightLog['incident_description'])): ?>
+                                                <span style="color: var(--danger); font-weight: 600;">
+                                                    <?= nl2br(htmlspecialchars($flightLog['incident_description'])) ?>
+                                                </span>
+                                            <?php else: ?>
+                                                <span style="color: #166534;">None reported</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                    <?php if (!empty($flightLog['pilot_notes'])): ?>
+                                        <tr>
+                                            <th>RPIC Notes</th>
+                                            <td><?= nl2br(htmlspecialchars($flightLog['pilot_notes'])) ?></td>
+                                        </tr>
+                                    <?php endif; ?>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+
+                        <!-- FLIGHT PLAN SPECIFICATIONS -->
                         <table class="table" style="margin-bottom: 1.5rem;">
                             <tr><th>Work Control</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
                             <tr><th>Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
@@ -461,7 +523,8 @@ $flightLog = $logStmt->fetch();
                             <tr><th>Remote PIC</th><td><?= htmlspecialchars($flight['pilot_name']) ?></td></tr>
                         </table>
 
-                        <?php if (isLoggedIn()): ?>
+                        <!-- RE-DISPATCH NOTIFICATION EMAIL (Suppressed once post-flight log is completed) -->
+                        <?php if (isLoggedIn() && !$flightLog): ?>
                             <div style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: 6px; padding: 1rem;">
                                 <span style="font-size: 0.9rem; font-weight: 600;">Re-dispatch Notification Email:</span>
                                 <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" style="margin-top: 0.5rem;">
