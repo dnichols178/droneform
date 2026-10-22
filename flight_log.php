@@ -42,27 +42,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $incidentOccurred = isset($_POST['incident_occurred']) ? 1 : 0;
         $incidentDesc = trim($_POST['incident_description'] ?? '');
 
-        try {
-            $logInsert = $pdo->prepare("
-                INSERT INTO flight_logs (
-                    flight_id, actual_start_time, actual_end_time, total_flight_minutes,
-                    max_altitude_reached, battery_start_pct, battery_end_pct, pilot_notes,
-                    incident_occurred, incident_description, logged_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $logInsert->execute([
-                $flightId, $actualStart, $actualEnd, $totalMinutes,
-                $maxAltitudeReached, $battStart, $battEnd, $pilotNotes,
-                $incidentOccurred, $incidentDesc, $_SESSION['user_id']
-            ]);
+        if (empty($pilotNotes)) {
+            $err = "Pilot notes are required to complete the post-flight log.";
+        } else {
+            try {
+                $logInsert = $pdo->prepare("
+                    INSERT INTO flight_logs (
+                        flight_id, actual_start_time, actual_end_time, total_flight_minutes,
+                        max_altitude_reached, battery_start_pct, battery_end_pct, pilot_notes,
+                        incident_occurred, incident_description, logged_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $logInsert->execute([
+                    $flightId, $actualStart, $actualEnd, $totalMinutes,
+                    $maxAltitudeReached, $battStart, $battEnd, $pilotNotes,
+                    $incidentOccurred, $incidentDesc, $_SESSION['user_id']
+                ]);
 
-            // Update flight status
-            $pdo->prepare("UPDATE flights SET status = 'COMPLETED' WHERE id = ?")->execute([$flightId]);
+                // Update flight status
+                $pdo->prepare("UPDATE flights SET status = 'COMPLETED' WHERE id = ?")->execute([$flightId]);
 
-            header("Location: flight_details.php?id=$flightId");
-            exit;
-        } catch (PDOException $e) {
-            $err = "Error recording log: " . $e->getMessage();
+                header("Location: flight_details.php?id=$flightId");
+                exit;
+            } catch (PDOException $e) {
+                $err = "Error recording log: " . $e->getMessage();
+            }
         }
     }
 }
@@ -73,15 +77,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <div class="card">
     <div class="card-header">
         <h2 class="card-title">Post-Flight Debrief &amp; Telemetry Log: <?= htmlspecialchars($flight['flight_number']) ?></h2>
-		                <button type="submit" 
-                        name="action_cancel" 
-                        value="1" 
-                        formnovalidate 
-                        class="btn btn-outline" 
-                        style="color: var(--danger); border-color: var(--danger);" 
-                        onclick="return confirm('Are you sure you want to mark this flight as Canceled? The flight plan will remain saved, but no post-flight telemetry will be recorded.');">
-                    Flight Canceled
-                </button>
+        <form method="POST" style="display:inline; margin: 0;">
+            <button type="submit" 
+                    name="action_cancel" 
+                    value="1" 
+                    formnovalidate 
+                    class="btn btn-outline" 
+                    style="color: var(--danger); border-color: var(--danger);" 
+                    onclick="return confirm('Are you sure you want to mark this flight as Canceled? The flight plan will remain saved, but no post-flight telemetry will be recorded.');">
+                Flight Canceled
+            </button>
+        </form>
     </div>
     <div class="card-body">
         <form method="POST">
@@ -116,8 +122,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
 
             <div class="form-group">
-                <label for="pilot_notes">Pilot Remarks, Airframe Check, Weather/Wind Details</label>
-                <textarea name="pilot_notes" id="pilot_notes" class="form-control" placeholder="Observations, visual observer coordination, KP index, wind gusts..."></textarea>
+                <label for="pilot_notes">Pilot Remarks, Airframe Check, Weather/Wind Details <span style="color: var(--danger);">*</span></label>
+                <textarea name="pilot_notes" id="pilot_notes" class="form-control" placeholder="Observations, visual observer coordination, KP index, wind gusts..." required><?= htmlspecialchars($_POST['pilot_notes'] ?? '') ?></textarea>
             </div>
 
             <div class="card" style="border: 1px solid var(--danger); padding: 1.25rem; background: #fff5f5;">
@@ -127,13 +133,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </p>
                 <div class="form-group">
                     <label>
-                        <input type="checkbox" name="incident_occurred" value="1">
+                        <input type="checkbox" name="incident_occurred" value="1" <?= isset($_POST['incident_occurred']) ? 'checked' : '' ?>>
                         An incident, flyaway, structural collision, or emergency occurred during this flight
                     </label>
                 </div>
                 <div class="form-group">
                     <label for="incident_description">Incident Assessment &amp; Corrective Action</label>
-                    <textarea name="incident_description" id="incident_description" class="form-control" placeholder="Describe damage, property involvement, or injury if applicable..."></textarea>
+                    <textarea name="incident_description" id="incident_description" class="form-control" placeholder="Describe damage, property involvement, or injury if applicable..."><?= htmlspecialchars($_POST['incident_description'] ?? '') ?></textarea>
                 </div>
             </div>
 
