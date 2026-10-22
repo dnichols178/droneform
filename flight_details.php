@@ -305,7 +305,7 @@ $flightLog = $logStmt->fetch();
                             </form>
                         <?php elseif (!isLoggedIn()): ?>
                             <div class="alert alert-info" style="margin-bottom: 0;">
-                                <a href="login.php">Log in</a> to record LAANC clearance codes for this flight.
+                                <a href="login.php">Log in</a> to record LAANC authorization for this flight.
                             </div>
                         <?php else: ?>
                             <div class="alert alert-info" style="margin-bottom: 0;">
