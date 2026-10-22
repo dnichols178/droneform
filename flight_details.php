@@ -144,7 +144,7 @@ $aloftWebUrl = "https://air.aloft.ai";
 if (isset($_GET['msg'])) {
     if ($_GET['msg'] === 'laanc_saved') $actionMsg = "LAANC authorization number successfully saved! Review the draft notification below.";
     if ($_GET['msg'] === 'class_g_confirmed') $actionMsg = "Class G uncontrolled airspace verified. Review the draft notification below.";
-    if ($_GET['msg'] === 'notification_sent') $actionMsg = "Flight plan notification has been sent to all procedural recipients!";
+    if ($_GET['msg'] === 'notification_sent') $actionMsg = "Flight plan notification has been sent to recipients!";
 }
 
 // Post-flight log status
@@ -218,7 +218,7 @@ $flightLog = $logStmt->fetch();
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" onsubmit="return confirm('Cancel and delete this flight plan? All flight data will be permanently purged.');">
                         <input type="hidden" name="action" value="cancel_flight">
-                        <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: var(--danger);">
+                        <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: var(--danger); padding:15px;">
                             X Cancel &amp; Delete Flight
                         </button>
                     </form>
@@ -344,9 +344,9 @@ $flightLog = $logStmt->fetch();
                                 <th>Target Facility</th>
                                 <td><?= htmlspecialchars($flight['facility_name']) ?></td>
                             </tr>
-                            <tr style="background: #f8fafc;">
+                            <tr>
                                 <th>Mission Scope</th>
-                                <td><strong style="color: var(--primary-dark);"><?= nl2br(htmlspecialchars($flight['mission_purpose'])) ?></strong></td>
+                                <td><?= nl2br(htmlspecialchars($flight['mission_purpose'])) ?></td>
                             </tr>
                             <tr>
                                 <th>UAS Make &amp; Model</th>
@@ -404,7 +404,7 @@ $flightLog = $logStmt->fetch();
                             <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 1rem; border-top: 1px solid var(--border-light);">
                                 <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" onsubmit="return confirm('Are you sure you want to cancel and delete this flight plan? All entered mission parameters, coordinates, and LAANC records will be permanently deleted.');">
                                     <input type="hidden" name="action" value="cancel_flight">
-                                    <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: var(--danger);">
+                                    <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: var(--danger); padding:12px;">
                                         X Cancel &amp; Delete Flight Plan
                                     </button>
                                 </form>
@@ -442,7 +442,7 @@ $flightLog = $logStmt->fetch();
                         <table class="table" style="margin-bottom: 1.5rem;">
                             <tr><th>Work Control</th><td><?= htmlspecialchars($flight['work_package']) ?></td></tr>
                             <tr><th>Facility</th><td><?= htmlspecialchars($flight['facility_name']) ?></td></tr>
-                            <tr><th>Mission Scope</th><td><strong style="color: var(--primary-dark);"><?= nl2br(htmlspecialchars($flight['mission_purpose'])) ?></strong></td></tr>
+                            <tr><th>Mission Scope</th><td><?= nl2br(htmlspecialchars($flight['mission_purpose'])) ?></td></tr>
                             <tr><th>Aircraft Model</th><td><?= htmlspecialchars($flight['aircraft_model']) ?></td></tr>
                             <?php if (!empty($flight['faa_reg_number'])): ?>
                                 <tr>
