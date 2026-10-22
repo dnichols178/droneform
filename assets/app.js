@@ -37,7 +37,8 @@ function initFlightPlannerMap() {
     L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
         maxZoom: 22,
 		maxNativeZoom: 20,
-        subdomains: ['0', '1', '2', '3']
+        subdomains: ['0', '1', '2', '3'],
+		crossOrigin: 'anonymous'
     }).addTo(map);
 
     setTimeout(() => {
@@ -318,10 +319,10 @@ function initFlightPlannerMap() {
 
             // Top HUD
             ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-            ctx.fillRect(10, 10, 310, 42);
+            ctx.fillRect(10, 10, 200, 22);
             ctx.strokeStyle = '#334155';
             ctx.lineWidth = 1;
-            ctx.strokeRect(10, 10, 310, 42);
+            ctx.strokeRect(10, 10, 200, 22);
 
             ctx.fillStyle = '#00d2ff';
             ctx.font = 'bold 12px sans-serif';
