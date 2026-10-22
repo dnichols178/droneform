@@ -72,7 +72,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">Part 107 Post-Flight Debrief &amp; Telemetry Log: <?= htmlspecialchars($flight['flight_number']) ?></h2>
+        <h2 class="card-title">Post-Flight Debrief &amp; Telemetry Log: <?= htmlspecialchars($flight['flight_number']) ?></h2>
+		                <button type="submit" 
+                        name="action_cancel" 
+                        value="1" 
+                        formnovalidate 
+                        class="btn btn-outline" 
+                        style="color: var(--danger); border-color: var(--danger);" 
+                        onclick="return confirm('Are you sure you want to mark this flight as Canceled? The flight plan will remain saved, but no post-flight telemetry will be recorded.');">
+                    Flight Canceled
+                </button>
     </div>
     <div class="card-body">
         <form method="POST">
@@ -128,16 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             </div>
 
-            <div style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
-                <button type="submit" 
-                        name="action_cancel" 
-                        value="1" 
-                        formnovalidate 
-                        class="btn btn-outline" 
-                        style="color: var(--danger); border-color: var(--danger);" 
-                        onclick="return confirm('Are you sure you want to mark this flight as Canceled? The flight plan will remain saved, but no post-flight telemetry will be recorded.');">
-                    Flight Canceled
-                </button>
+            <div style="margin-top: 1.5rem; text-align: right;">
                 <div>
                     <a href="flight_details.php?id=<?= $flightId ?>" class="btn btn-outline">Back</a>
                     <button type="submit" class="btn btn-primary" style="margin-left: 0.5rem;">Commit Post Flight Record</button>
