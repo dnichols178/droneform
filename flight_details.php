@@ -23,83 +23,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit;
 }
 
-// Handle POST actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    requireLogin();
-    $action = $_POST['action'] ?? '';
-
-    // CANCEL & PURGE FLIGHT (Step 2 or Step 3)
-    if ($action === 'cancel_flight') {
-        $pdo->prepare("DELETE FROM notification_logs WHERE flight_id = ?")->execute([$flightId]);
-        $pdo->prepare("DELETE FROM flight_logs WHERE flight_id = ?")->execute([$flightId]);
-        $pdo->prepare("DELETE FROM flights WHERE id = ?")->execute([$flightId]);
-        header("Location: dashboard.php?msg=flight_cancelled");
-        exit;
-    }
-
-    // STEP 1: Record LAANC code
-    if ($action === 'record_laanc') {
-        $code = strtoupper(trim($_POST['laanc_auth_number'] ?? ''));
-        if (!empty($code)) {
-            $checkStmt = $pdo->prepare("SELECT flight_number FROM flights WHERE UPPER(laanc_auth_number) = ? AND id != ?");
-            $checkStmt->execute([$code, $flightId]);
-            $existing = $checkStmt->fetch();
-
-            if ($existing) {
-                $actionError = "Duplicate LAANC Code: Authorization number '{$code}' has already been registered on flight plan {$existing['flight_number']}. LAANC authorization numbers must be unique.";
-            } else {
-                $localNow = date('Y-m-d H:i:s');
-                $stmt = $pdo->prepare("
-                    UPDATE flights SET 
-                         laanc_auth_number = ?, 
-                         laanc_status = 'APPROVED', 
-                         laanc_authorized_at = ? 
-                       WHERE id = ?
-                ");
-                $stmt->execute([$code, $localNow, $flightId]);
-                header("Location: flight_details.php?id={$flightId}&msg=laanc_saved");
-                exit;
-            }
-        } else {
-            $actionError = 'Please enter a valid FAA LAANC authorization number.';
-        }
-    }
-
-    // STEP 1 (Class G confirmation)
-    if ($action === 'confirm_class_g') {
-        $stmt = $pdo->prepare("UPDATE flights SET laanc_status = 'NOT_REQUIRED' WHERE id = ?");
-        $stmt->execute([$flightId]);
-        header("Location: flight_details.php?id={$flightId}&msg=class_g_confirmed");
-        exit;
-    }
-
-    // STEP 3: Dispatch final notification email
-    if ($action === 'send_final_notification') {
-        $smtpError = null;
-        if (sendFlightNotification($flightId, [], $smtpError)) {
-            header("Location: flight_details.php?id={$flightId}&msg=notification_sent");
-            exit;
-        } else {
-            $actionError = 'Failed to transmit notification via SMTP relay: ' . ($smtpError ?: 'Check server configuration and recipients.');
-            $keepOnStep3 = true;
-        }
-    }
-
-    // Secondary resend
-    if ($action === 'resend_notification') {
-        $extra = array_filter(array_map('trim', explode(',', $_POST['extra_emails'] ?? '')));
-        $smtpError = null;
-        if (sendFlightNotification($flightId, $extra, $smtpError)) {
-            $actionMsg = 'Flight notification emails successfully re-dispatched.';
-        } else {
-            $actionError = 'Failed to re-dispatch notification: ' . ($smtpError ?: 'Check server configuration.');
-        }
-    }
-}
-
-// Fetch Flight Details
+// Fetch Flight Details First to Validate Permissions
 $stmt = $pdo->prepare("
-    SELECT f.*, u.full_name AS pilot_name, u.phone AS pilot_phone, u.email AS pilot_email
+    SELECT f.*, u.full_name AS pilot_name, u.phone AS pilot_phone, u.email AS pilot_email, u.username AS pilot_username
     FROM flights f
     JOIN users u ON f.pilot_id = u.id
     WHERE f.id = ?
@@ -111,6 +37,92 @@ if (!$flight) {
     echo "<div class='alert alert-danger'>Flight record not found.</div>";
     require_once __DIR__ . '/includes/footer.php';
     exit;
+}
+
+// Establish pilot / creator display name and authorization check
+$pilotDisplayName = !empty($flight['pilot_username']) ? $flight['pilot_username'] : (!empty($flight['pilot_name']) ? $flight['pilot_name'] : 'The initiating pilot');
+$currentUserId = (int)($_SESSION['user_id'] ?? 0);
+$currentUserRole = $_SESSION['role'] ?? '';
+$isOwner = ($currentUserId > 0) && ($currentUserId === (int)$flight['pilot_id'] || $currentUserId === (int)($flight['created_by'] ?? 0));
+$isAdminUser = ($currentUserRole === 'admin' || (function_exists('isAdmin') && isAdmin()));
+$canManage = ($isOwner || $isAdminUser);
+
+// Handle POST actions with ownership / admin verification
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireLogin();
+    $action = $_POST['action'] ?? '';
+
+    if (!$canManage) {
+        $actionError = "Access denied: Only {$pilotDisplayName} or an administrator can modify or dispatch this flight plan.";
+    } else {
+        // CANCEL & PURGE FLIGHT (Step 2 or Step 3)
+        if ($action === 'cancel_flight') {
+            $pdo->prepare("DELETE FROM notification_logs WHERE flight_id = ?")->execute([$flightId]);
+            $pdo->prepare("DELETE FROM flight_logs WHERE flight_id = ?")->execute([$flightId]);
+            $pdo->prepare("DELETE FROM flights WHERE id = ?")->execute([$flightId]);
+            header("Location: dashboard.php?msg=flight_cancelled");
+            exit;
+        }
+
+        // STEP 1: Record LAANC code
+        if ($action === 'record_laanc') {
+            $code = strtoupper(trim($_POST['laanc_auth_number'] ?? ''));
+            if (!empty($code)) {
+                $checkStmt = $pdo->prepare("SELECT flight_number FROM flights WHERE UPPER(laanc_auth_number) = ? AND id != ?");
+                $checkStmt->execute([$code, $flightId]);
+                $existing = $checkStmt->fetch();
+
+                if ($existing) {
+                    $actionError = "Duplicate LAANC Code: Authorization number '{$code}' has already been registered on flight plan {$existing['flight_number']}. LAANC authorization numbers must be unique.";
+                } else {
+                    $localNow = date('Y-m-d H:i:s');
+                    $stmt = $pdo->prepare("
+                        UPDATE flights SET 
+                             laanc_auth_number = ?, 
+                             laanc_status = 'APPROVED', 
+                             laanc_authorized_at = ? 
+                           WHERE id = ?
+                    ");
+                    $stmt->execute([$code, $localNow, $flightId]);
+                    header("Location: flight_details.php?id={$flightId}&msg=laanc_saved");
+                    exit;
+                }
+            } else {
+                $actionError = 'Please enter a valid FAA LAANC authorization number.';
+            }
+        }
+
+        // STEP 1 (Class G confirmation)
+        if ($action === 'confirm_class_g') {
+            $stmt = $pdo->prepare("UPDATE flights SET laanc_status = 'NOT_REQUIRED' WHERE id = ?");
+            $stmt->execute([$flightId]);
+            header("Location: flight_details.php?id={$flightId}&msg=class_g_confirmed");
+            exit;
+        }
+
+        // STEP 3: Dispatch final notification email
+        if ($action === 'send_final_notification') {
+            $smtpError = null;
+            if (sendFlightNotification($flightId, [], $smtpError)) {
+                header("Location: flight_details.php?id={$flightId}&msg=notification_sent");
+                exit;
+            } else {
+                $actionError = 'Failed to transmit notification via SMTP relay: ' . ($smtpError ?: 'Check server configuration and recipients.');
+                $keepOnStep3 = true;
+            }
+        }
+
+        // Secondary resend
+        if ($action === 'resend_notification') {
+            $extra = array_filter(array_map('trim', explode(',', $_POST['extra_emails'] ?? '')));
+            $smtpError = null;
+            if (sendFlightNotification($flightId, $extra, $smtpError)) {
+                $actionMsg = 'Flight notification emails successfully re-dispatched.';
+            } else {
+                $actionError = 'Failed to re-dispatch notification: ' . ($smtpError ?: 'Check server configuration.');
+            }
+        }
+    }
 }
 
 // Fetch notification history
@@ -147,7 +159,7 @@ if (isset($_GET['msg'])) {
     if ($_GET['msg'] === 'notification_sent') $actionMsg = "Flight plan notification has been sent to recipients!";
 }
 
-// Post-flight log status & data (flight_id is UNIQUE, no ordering or limit required)
+// Post-flight log status & data
 $logStmt = $pdo->prepare("SELECT * FROM flight_logs WHERE flight_id = ?");
 $logStmt->execute([$flightId]);
 $flightLog = $logStmt->fetch();
@@ -214,7 +226,7 @@ $flightLog = $logStmt->fetch();
                 </div>
             </div>
 
-            <?php if (isLoggedIn()): ?>
+            <?php if ($canManage): ?>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" onsubmit="return confirm('Cancel and delete this flight plan? All flight data will be permanently purged.');">
                         <input type="hidden" name="action" value="cancel_flight">
@@ -229,9 +241,13 @@ $flightLog = $logStmt->fetch();
                         </button>
                     </form>
                 </div>
-            <?php else: ?>
+            <?php elseif (!isLoggedIn()): ?>
                 <div class="alert alert-info" style="margin-bottom: 0;">
                     <a href="login.php">Log in</a> to send notification dispatches or manage this flight plan.
+                </div>
+            <?php else: ?>
+                <div class="alert alert-info" style="margin-bottom: 0;">
+                    <strong><?= htmlspecialchars($pilotDisplayName) ?></strong> has not transmitted the flight notification. Only the initiating pilot or an administrator can dispatch this flight plan.
                 </div>
             <?php endif; ?>
         </div>
@@ -268,7 +284,7 @@ $flightLog = $logStmt->fetch();
                             </div>
                         </div>
 
-                        <?php if (isLoggedIn()): ?>
+                        <?php if ($canManage): ?>
                             <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>">
                                 <input type="hidden" name="action" value="record_laanc">
                                 <div class="form-group">
@@ -285,9 +301,13 @@ $flightLog = $logStmt->fetch();
                                 </div>
                                 <button type="submit" class="btn btn-primary btn-block">Save Authorization &amp; Continue →</button>
                             </form>
+                        <?php elseif (!isLoggedIn()): ?>
+                            <div class="alert alert-info" style="margin-bottom: 0;">
+                                <a href="login.php">Log in</a> to record LAANC authorization for this flight.
+                            </div>
                         <?php else: ?>
                             <div class="alert alert-info" style="margin-bottom: 0;">
-                                <a href="login.php">Log in</a> to record LAANC clearance codes for this flight.
+                                <?= htmlspecialchars($pilotDisplayName) ?> has not entered LAANC authorization.
                             </div>
                         <?php endif; ?>
                     </div>
@@ -400,7 +420,7 @@ $flightLog = $logStmt->fetch();
                             </tr>
                         </table>
 
-                        <?php if (isLoggedIn()): ?>
+                        <?php if ($canManage): ?>
                             <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 1rem; border-top: 1px solid var(--border-light);">
                                 <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" onsubmit="return confirm('Are you sure you want to cancel and delete this flight plan? All entered mission parameters, coordinates, and LAANC records will be permanently deleted.');">
                                     <input type="hidden" name="action" value="cancel_flight">
@@ -412,9 +432,13 @@ $flightLog = $logStmt->fetch();
                                     Review and Send Notification →
                                 </a>
                             </div>
-                        <?php else: ?>
+                        <?php elseif (!isLoggedIn()): ?>
                             <div class="alert alert-info" style="margin-bottom: 0;">
                                 <a href="login.php">Log in</a> to send notification dispatches or manage this flight plan.
+                            </div>
+                        <?php else: ?>
+                            <div class="alert alert-info" style="margin-bottom: 0;">
+                                <?= htmlspecialchars($pilotDisplayName) ?> has not completed notification review.
                             </div>
                         <?php endif; ?>
                     </div>
@@ -430,8 +454,10 @@ $flightLog = $logStmt->fetch();
                                 🖨️ Print / Generate PDF
                             </a>
                             <?php if (!$flightLog): ?>
-                                <?php if (isLoggedIn()): ?>
+                                <?php if ($canManage): ?>
                                     <a href="flight_log.php?flight_id=<?= $flight['id'] ?>" class="btn btn-success btn-sm">+ Complete Post-Flight Log</a>
+                                <?php elseif (isLoggedIn()): ?>
+                                    <span class="badge badge-warning" style="background-color: #f59e0b; color: #fff;">Awaiting Post-Flight Log (<?= htmlspecialchars($pilotDisplayName) ?>)</span>
                                 <?php endif; ?>
                             <?php else: ?>
                                 <span class="badge badge-success">POST-FLIGHT LOGGED</span>
@@ -523,8 +549,8 @@ $flightLog = $logStmt->fetch();
                             <tr><th>Remote PIC</th><td><?= htmlspecialchars($flight['pilot_name']) ?></td></tr>
                         </table>
 
-                        <!-- RE-DISPATCH NOTIFICATION EMAIL (Suppressed once post-flight log is completed) -->
-                        <?php if (isLoggedIn() && !$flightLog): ?>
+                        <!-- RE-DISPATCH NOTIFICATION EMAIL (Suppressed once post-flight log is completed; restricted to pilot/admin) -->
+                        <?php if ($canManage && !$flightLog): ?>
                             <div style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: 6px; padding: 1rem;">
                                 <span style="font-size: 0.9rem; font-weight: 600;">Re-dispatch Notification Email:</span>
                                 <form method="POST" action="flight_details.php?id=<?= $flight['id'] ?>" style="margin-top: 0.5rem;">
