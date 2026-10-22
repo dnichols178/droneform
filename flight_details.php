@@ -168,25 +168,27 @@ $flightLog = $logStmt->fetch();
 <?php if ($actionMsg): ?><div class="alert alert-success"><?= htmlspecialchars($actionMsg) ?></div><?php endif; ?>
 <?php if ($actionError): ?><div class="alert alert-danger"><?= htmlspecialchars($actionError) ?></div><?php endif; ?>
 
-<!-- WORKFLOW STEPPER BAR -->
-<div class="workflow-stepper">
-    <div class="workflow-step <?= $currentStep === '1' ? 'active' : ($laancIsComplete ? 'completed' : '') ?>">
-        <span class="step-num"><?= $laancIsComplete ? '✓' : '1' ?></span>
-        <span>1. LAANC Clearance</span>
+<!-- WORKFLOW STEPPER BAR (Removed once post-flight log is completed) -->
+<?php if (!$flightLog): ?>
+    <div class="workflow-stepper">
+        <div class="workflow-step <?= $currentStep === '1' ? 'active' : ($laancIsComplete ? 'completed' : '') ?>">
+            <span class="step-num"><?= $laancIsComplete ? '✓' : '1' ?></span>
+            <span>1. LAANC Clearance</span>
+        </div>
+        <div class="workflow-step <?= $currentStep === '2' ? 'active' : ($hasSentNotifications || $currentStep === '3' ? 'completed' : '') ?>">
+            <span class="step-num"><?= ($hasSentNotifications || $currentStep === '3') ? '✓' : '2' ?></span>
+            <span>2. Draft Summary</span>
+        </div>
+        <div class="workflow-step <?= $currentStep === '3' ? 'active' : ($hasSentNotifications ? 'completed' : '') ?>">
+            <span class="step-num"><?= $hasSentNotifications ? '✓' : '3' ?></span>
+            <span>3. Email Review &amp; Send</span>
+        </div>
+        <div class="workflow-step <?= $currentStep === 'complete' ? 'completed' : '' ?>">
+            <span class="step-num"><?= $currentStep === 'complete' ? '✓' : '4' ?></span>
+            <span>Flight Plan Active</span>
+        </div>
     </div>
-    <div class="workflow-step <?= $currentStep === '2' ? 'active' : ($hasSentNotifications || $currentStep === '3' ? 'completed' : '') ?>">
-        <span class="step-num"><?= ($hasSentNotifications || $currentStep === '3') ? '✓' : '2' ?></span>
-        <span>2. Draft Summary</span>
-    </div>
-    <div class="workflow-step <?= $currentStep === '3' ? 'active' : ($hasSentNotifications ? 'completed' : '') ?>">
-        <span class="step-num"><?= $hasSentNotifications ? '✓' : '3' ?></span>
-        <span>3. Email Review &amp; Send</span>
-    </div>
-    <div class="workflow-step <?= $currentStep === 'complete' ? 'completed' : '' ?>">
-        <span class="step-num"><?= $currentStep === 'complete' ? '✓' : '4' ?></span>
-        <span>Flight Plan Active</span>
-    </div>
-</div>
+<?php endif; ?>
 
 <?php if ($currentStep === '3'): ?>
     <!-- STEP 3: FULL WIDTH OUTLOOK EMAIL REVIEW -->
@@ -303,7 +305,7 @@ $flightLog = $logStmt->fetch();
                             </form>
                         <?php elseif (!isLoggedIn()): ?>
                             <div class="alert alert-info" style="margin-bottom: 0;">
-                                <a href="login.php">Log in</a> to record LAANC authorization for this flight.
+                                <a href="login.php">Log in</a> to record LAANC clearance codes for this flight.
                             </div>
                         <?php else: ?>
                             <div class="alert alert-info" style="margin-bottom: 0;">
@@ -516,12 +518,10 @@ $flightLog = $logStmt->fetch();
                                             <?php endif; ?>
                                         </td>
                                     </tr>
-                                    <?php if (!empty($flightLog['pilot_notes'])): ?>
-                                        <tr>
-                                            <th>RPIC Notes</th>
-                                            <td><?= nl2br(htmlspecialchars($flightLog['pilot_notes'])) ?></td>
-                                        </tr>
-                                    <?php endif; ?>
+                                    <tr>
+                                        <th>RPIC Notes</th>
+                                        <td><?= !empty($flightLog['pilot_notes']) ? nl2br(htmlspecialchars($flightLog['pilot_notes'])) : '<span style="color:var(--text-muted);">None entered</span>' ?></td>
+                                    </tr>
                                 </table>
                             </div>
                         <?php endif; ?>
