@@ -39,7 +39,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         'app_timezone'   => trim($_POST['app_timezone'] ?? 'America/Chicago')
     ];
 
-    $stmt = $pdo->prepare("INSERT OR REPLACE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
+    //SQLlite
+    //$stmt = $pdo->prepare("INSERT OR REPLACE INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
+
+    //MySql
+    $stmt = $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
     foreach ($settingsToSave as $k => $v) {
         $stmt->execute([$k, $v]);
     }
