@@ -503,7 +503,9 @@ function checkAndSendPostFlightReminders(): int {
         JOIN users pilot ON f.pilot_id = pilot.id
         LEFT JOIN flight_logs fl ON fl.flight_id = f.id
         WHERE fl.id IS NULL
-          AND (f.reminder_sent_at IS NULL OR f.reminder_sent_at = '')
+          //SQLite to MySQL
+          //AND (f.reminder_sent_at IS NULL OR f.reminder_sent_at = '')
+          AND f.reminder_sent_at IS NULL
     ";
 
     $flights = $pdo->query($sql)->fetchAll();
